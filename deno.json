@@ -1,0 +1,14 @@
+{
+    "compilerOptions": {
+        "lib": [
+            "deno.window",
+            "deno.ns"
+        ]
+    },
+    "tasks": {
+        "dev": "deno run -A app/main.ts"
+    },
+    "imports": {
+        "@db/sqlite": "jsr:@db/sqlite@^0.13.0"
+    }
+}
