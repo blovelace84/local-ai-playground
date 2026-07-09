@@ -1,22 +1,22 @@
-import { runModel } from "./model/runner.ts";
+import { handleChatApi } from "./api/chatApi.ts";
+import { handleConversationApi } from "./api/conversationApi.ts";
 import { getInstalledModels } from "./model/metadata.ts";
 
 export async function handleBridgeRequest(req: Request): Promise<Response> {
   const url = new URL(req.url);
 
   try {
-    if (req.method === "GET" && url.pathname === "/api/models") {
-      const models = await getInstalledModels();
+    if (url.pathname === "/api/chat") {
+      return handleChatApi(req);
+    }
 
+    if (url.pathname === "/api/models") {
+      const models = await getInstalledModels();
       return Response.json({ models });
     }
 
-    if (req.method === "POST" && url.pathname === "/api/chat") {
-      const body = await req.json();
-
-      const reply = await runModel(body.messages, body.model);
-
-      return Response.json({ reply });
+    if (url.pathname.startsWith("/api/conversations")) {
+      return handleConversationApi(req);
     }
 
     return Response.json(
@@ -24,9 +24,7 @@ export async function handleBridgeRequest(req: Request): Promise<Response> {
       { status: 404 },
     );
   } catch (error) {
-    const message = error instanceof Error
-      ? error.message
-      : "Server error";
+    const message = error instanceof Error ? error.message : "Server error";
 
     return Response.json(
       { error: message },

@@ -10,7 +10,8 @@
     "jsr:@std/path@1": "1.0.9",
     "jsr:@std/path@1.0": "1.0.9",
     "jsr:@std/path@^1.1.5": "1.1.6",
-    "npm:drizzle-orm@*": "0.45.2"
+    "npm:drizzle-orm@*": "0.45.2",
+    "npm:drizzle-orm@0.45.2": "0.45.2"
   },
   "jsr": {
     "@db/sqlite@0.13.0": {
@@ -62,7 +63,8 @@
   },
   "workspace": {
     "dependencies": [
-      "jsr:@db/sqlite@0.13"
+      "jsr:@db/sqlite@0.13",
+      "npm:drizzle-orm@0.45.2"
     ]
   }
 }
