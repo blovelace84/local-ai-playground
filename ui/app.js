@@ -158,8 +158,9 @@ async function sendMessage() {
         "content-type": "application/json",
       },
       body: JSON.stringify({
-        model: modelStore.selectedModel,
-        messages: chatStore.getMessagesForOllama(),
+       conversationId: chatStore.activeConversationId,
+       model: modelStore.selectedModel,
+       message,
       }),
     });
 
