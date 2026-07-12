@@ -7,69 +7,144 @@ import {
 } from "../database/conversationRepository.ts";
 
 import {
-  addMessage,
   deleteMessages,
   getMessages,
 } from "../database/messageRepository.ts";
 
-export async function handleConversationApi(req: Request): Promise<Response> {
+type RenameBody = {
+  title?: string;
+};
+
+export async function handleConversationApi(
+  req: Request,
+): Promise<Response> {
   const url = new URL(req.url);
+  const pathParts = url.pathname.split("/").filter(Boolean);
 
-  if (req.method === "GET" && url.pathname === "/api/conversations") {
-    const conversations = getAllConversations();
-    return Response.json({ conversations });
-  }
-
-  if (req.method === "POST" && url.pathname === "/api/conversations") {
-    const conversation = createConversation();
-    return Response.json({ conversation });
-  }
-
-  if (req.method === "GET" && url.pathname.startsWith("/api/conversations/")) {
-    const id = url.pathname.split("/")[3];
-
-    const conversation = getConversationById(id);
-
-    if (!conversation) {
-      return Response.json({ error: "Conversation not found" }, { status: 404 });
-    }
-
-    const messages = getMessages(id);
-
+  // GET /api/conversations
+  if (
+    req.method === "GET" &&
+    url.pathname === "/api/conversations"
+  ) {
     return Response.json({
-      conversation,
-      messages,
+      conversations: getAllConversations(),
     });
   }
 
-  if (req.method === "PATCH" && url.pathname.startsWith("/api/conversations/")) {
-    const id = url.pathname.split("/")[3];
-    const body = await req.json();
+  // POST /api/conversations
+  if (
+    req.method === "POST" &&
+    url.pathname === "/api/conversations"
+  ) {
+    const conversation = createConversation();
 
-    const conversation = renameConversation(id, body.title);
+    return Response.json(
+      { conversation },
+      { status: 201 },
+    );
+  }
+
+  const conversationId = pathParts[2];
+
+  if (!conversationId) {
+    return Response.json(
+      { error: "Conversation ID is required." },
+      { status: 400 },
+    );
+  }
+
+  // DELETE /api/conversations/:id/messages
+  // This must appear before the general conversation DELETE route.
+  if (
+    req.method === "DELETE" &&
+    pathParts.length === 4 &&
+    pathParts[3] === "messages"
+  ) {
+    const conversation = getConversationById(conversationId);
+
+    if (!conversation) {
+      return Response.json(
+        { error: "Conversation not found." },
+        { status: 404 },
+      );
+    }
+
+    deleteMessages(conversationId);
+
+    return Response.json({ success: true });
+  }
+
+  // GET /api/conversations/:id
+  if (
+    req.method === "GET" &&
+    pathParts.length === 3
+  ) {
+    const conversation = getConversationById(conversationId);
+
+    if (!conversation) {
+      return Response.json(
+        { error: "Conversation not found." },
+        { status: 404 },
+      );
+    }
+
+    return Response.json({
+      conversation,
+      messages: getMessages(conversationId),
+    });
+  }
+
+  // PATCH /api/conversations/:id
+  if (
+    req.method === "PATCH" &&
+    pathParts.length === 3
+  ) {
+    const body = await req.json() as RenameBody;
+    const title = body.title?.trim();
+
+    if (!title) {
+      return Response.json(
+        { error: "A non-empty title is required." },
+        { status: 400 },
+      );
+    }
+
+    const conversation = renameConversation(
+      conversationId,
+      title.slice(0, 100),
+    );
+
+    if (!conversation) {
+      return Response.json(
+        { error: "Conversation not found." },
+        { status: 404 },
+      );
+    }
 
     return Response.json({ conversation });
   }
 
-  if (req.method === "DELETE" && url.pathname.startsWith("/api/conversations/")) {
-    const id = url.pathname.split("/")[3];
-
-    deleteConversation(id);
-
-    return Response.json({ success: true });
-  }
-
+  // DELETE /api/conversations/:id
   if (
     req.method === "DELETE" &&
-    url.pathname.startsWith("/api/conversations/") &&
-    url.pathname.endsWith("/messages")
+    pathParts.length === 3
   ) {
-    const id = url.pathname.split("/")[3];
+    const conversation = getConversationById(conversationId);
 
-    deleteMessages(id);
+    if (!conversation) {
+      return Response.json(
+        { error: "Conversation not found." },
+        { status: 404 },
+      );
+    }
+
+    deleteConversation(conversationId);
 
     return Response.json({ success: true });
   }
 
-  return Response.json({ error: "Conversation route not found" }, { status: 404 });
+  return Response.json(
+    { error: "Conversation route not found." },
+    { status: 404 },
+  );
 }

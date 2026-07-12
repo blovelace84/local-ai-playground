@@ -1,17 +1,32 @@
 import { chatStore } from "./stores/chatStore.js";
 import { modelStore } from "./stores/modelStore.js";
+import { chatService } from "./services/chatService.js";
 import { ChatBubble } from "./components/ChatBubble.js";
 
 const app = document.getElementById("app");
 
 let isLoading = false;
+let errorMessage = "";
 
-chatStore.load();
-await modelStore.loadModels();
+async function startApp() {
+  try {
+    // Remove the old prototype data once.
+    localStorage.removeItem("local-ai-conversations");
+
+    await Promise.all([
+      chatStore.initialize(),
+      modelStore.loadModels(),
+    ]);
+
+    render();
+  } catch (error) {
+    errorMessage = getErrorMessage(error);
+    render();
+  }
+}
 
 function render() {
   const activeChat = chatStore.getActiveConversation();
-  const messages = activeChat?.messages ?? [];
 
   app.innerHTML = `
     <main class="layout">
@@ -25,35 +40,67 @@ function render() {
         <div class="sidebar-section">
           <p>Chats</p>
 
-          ${chatStore.conversations.length === 0
-      ? `<p class="empty-sidebar-text">No saved chats yet.</p>`
-      : chatStore.conversations
-        .map(
-          (chat) => `
-                      <button
-                        class="chat-list-item ${chat.id === chatStore.activeConversationId
-              ? "active-chat"
-              : ""
-            }"
-                        data-chat-id="${chat.id}"
-                      >
-                        ${chat.title}
-                      </button>
+          ${
+            chatStore.conversations.length === 0
+              ? `<p class="empty-sidebar-text">No conversations yet.</p>`
+              : chatStore.conversations
+                  .map(
+                    (conversation) => `
+                      <div class="chat-list-row">
+                        <button
+                          class="chat-list-item ${
+                            conversation.id ===
+                                chatStore.activeConversationId
+                              ? "active-chat"
+                              : ""
+                          }"
+                          data-chat-id="${conversation.id}"
+                        >
+                          ${escapeHtml(conversation.title)}
+                        </button>
+
+                        <button
+                          class="chat-action-button rename-chat-button"
+                          data-chat-id="${conversation.id}"
+                          title="Rename chat"
+                        >
+                          ✏️
+                        </button>
+
+                        <button
+                          class="chat-action-button delete-chat-button"
+                          data-chat-id="${conversation.id}"
+                          title="Delete chat"
+                        >
+                          🗑️
+                        </button>
+                      </div>
                     `,
-        )
-        .join("")
-    }
+                  )
+                  .join("")
+          }
         </div>
 
         <div class="sidebar-section model-section">
           <p>Model</p>
 
-          <select id="modelSelect">
-            ${modelStore.models.map((model) => `
-              <option value="${model.name}" ${model.name === modelStore.selectedModel ? "selected" : ""}>
-                ${model.name}
-              </option>
-            `).join("")}
+          <select
+            id="modelSelect"
+            ${modelStore.models.length === 0 ? "disabled" : ""}
+          >
+            ${
+              modelStore.models.length === 0
+                ? `<option value="">No models installed</option>`
+                : modelStore.models
+                    .map(
+                      (model) => `
+                        <option value="${escapeHtml(model.name)}">
+                          ${escapeHtml(model.name)}
+                        </option>
+                      `,
+                    )
+                    .join("")
+            }
           </select>
         </div>
       </aside>
@@ -62,33 +109,64 @@ function render() {
         <header class="topbar">
           <div>
             <h1>🤖 Local AI Playground</h1>
-            <p>Private local AI powered by Ollama + Deno</p>
+            <p>
+              ${
+                activeChat
+                  ? escapeHtml(activeChat.title)
+                  : "No active conversation"
+              }
+            </p>
           </div>
 
           <div class="active-model-pill">
-            ${modelStore.selectedModel}
+            ${escapeHtml(modelStore.selectedModel || "No model")}
           </div>
         </header>
 
         <section class="chat-box" id="chatBox">
-          ${messages.length === 0
-      ? `<p class="empty-state">No messages yet. Start a conversation.</p>`
-      : messages.map(ChatBubble).join("")
-    }
+          ${
+            errorMessage
+              ? `<div class="error-message">${escapeHtml(errorMessage)}</div>`
+              : ""
+          }
+
+          ${
+            chatStore.messages.length === 0
+              ? `
+                <p class="empty-state">
+                  No messages yet. Start a conversation.
+                </p>
+              `
+              : chatStore.messages.map(ChatBubble).join("")
+          }
         </section>
 
         <section class="input-area">
           <textarea
             id="messageInput"
             placeholder="Ask your local AI..."
+            ${isLoading ? "disabled" : ""}
           ></textarea>
 
           <div class="input-actions">
-            <button id="clearChatBtn" class="secondary-button">
+            <button
+              id="clearChatBtn"
+              class="secondary-button"
+              ${isLoading ? "disabled" : ""}
+            >
               Clear Chat
             </button>
 
-            <button id="sendBtn" ${isLoading ? "disabled" : ""}>
+            <button
+              id="sendBtn"
+              ${
+                isLoading ||
+                    !chatStore.activeConversationId ||
+                    !modelStore.selectedModel
+                  ? "disabled"
+                  : ""
+              }
+            >
               ${isLoading ? "Thinking..." : "Send"}
             </button>
           </div>
@@ -98,84 +176,164 @@ function render() {
   `;
 
   bindEvents();
+
+  const modelSelect = document.getElementById("modelSelect");
+
+  if (modelSelect && modelStore.selectedModel) {
+    modelSelect.value = modelStore.selectedModel;
+  }
+
   scrollToBottom();
 }
 
 function bindEvents() {
-  document.getElementById("sendBtn")?.addEventListener("click", sendMessage);
+  document
+    .getElementById("sendBtn")
+    ?.addEventListener("click", sendMessage);
 
-  document.getElementById("messageInput")?.addEventListener("keydown", (event) => {
-    if (event.key === "Enter" && !event.shiftKey) {
-      event.preventDefault();
-      sendMessage();
-    }
-  });
-
-  document.getElementById("newChatBtn")?.addEventListener("click", () => {
-    chatStore.createConversation();
-    render();
-  });
-
-  document.getElementById("clearChatBtn")?.addEventListener("click", () => {
-    chatStore.clearMessages();
-    render();
-  });
-
-  document.querySelectorAll(".chat-list-item").forEach((button) => {
-    button.addEventListener("click", () => {
-      chatStore.setActiveConversation(button.dataset.chatId);
-      render();
+  document
+    .getElementById("messageInput")
+    ?.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" && !event.shiftKey) {
+        event.preventDefault();
+        sendMessage();
+      }
     });
-  });
 
-  const modelSelect = document.getElementById("modelSelect");
+  document
+    .getElementById("newChatBtn")
+    ?.addEventListener("click", async () => {
+      await runAction(async () => {
+        await chatStore.createConversation();
+      });
+    });
 
-  if (modelSelect) {
-    modelSelect.value = modelStore.selectedModel;
+  document
+    .getElementById("clearChatBtn")
+    ?.addEventListener("click", async () => {
+      if (!chatStore.activeConversationId) return;
 
-    modelSelect.addEventListener("change", (event) => {
+      const shouldClear = confirm(
+        "Clear every message in this conversation?",
+      );
+
+      if (!shouldClear) return;
+
+      await runAction(async () => {
+        await chatStore.clearActiveConversation();
+      });
+    });
+
+  document
+    .querySelectorAll(".chat-list-item")
+    .forEach((button) => {
+      button.addEventListener("click", async () => {
+        await runAction(async () => {
+          await chatStore.selectConversation(
+            button.dataset.chatId,
+          );
+        });
+      });
+    });
+
+  document
+    .querySelectorAll(".rename-chat-button")
+    .forEach((button) => {
+      button.addEventListener("click", async () => {
+        const id = button.dataset.chatId;
+
+        const conversation = chatStore.conversations.find(
+          (item) => item.id === id,
+        );
+
+        const title = prompt(
+          "Enter a new title:",
+          conversation?.title ?? "",
+        )?.trim();
+
+        if (!title) return;
+
+        await runAction(async () => {
+          await chatStore.renameConversation(id, title);
+        });
+      });
+    });
+
+  document
+    .querySelectorAll(".delete-chat-button")
+    .forEach((button) => {
+      button.addEventListener("click", async () => {
+        const shouldDelete = confirm(
+          "Delete this conversation permanently?",
+        );
+
+        if (!shouldDelete) return;
+
+        await runAction(async () => {
+          await chatStore.deleteConversation(
+            button.dataset.chatId,
+          );
+        });
+      });
+    });
+
+  document
+    .getElementById("modelSelect")
+    ?.addEventListener("change", (event) => {
       modelStore.setModel(event.target.value);
       render();
     });
-  }
 }
 
 async function sendMessage() {
   const input = document.getElementById("messageInput");
-  const message = input.value.trim();
+  const message = input?.value.trim();
 
-  if (!message || isLoading) return;
+  if (
+    !message ||
+    isLoading ||
+    !chatStore.activeConversationId ||
+    !modelStore.selectedModel
+  ) {
+    return;
+  }
 
-  chatStore.addMessage("user", message);
-
+  errorMessage = "";
   isLoading = true;
+
+  chatStore.addTemporaryMessage("user", message);
   render();
 
   try {
-    const res = await fetch("/api/chat", {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-      },
-      body: JSON.stringify({
-       conversationId: chatStore.activeConversationId,
-       model: modelStore.selectedModel,
-       message,
-      }),
+    const data = await chatService.sendMessage({
+      conversationId: chatStore.activeConversationId,
+      model: modelStore.selectedModel,
+      message,
     });
 
-    const data = await res.json();
+    chatStore.activeConversationId = data.conversationId;
 
-    if (!res.ok) {
-      chatStore.addMessage("ai", data.error ?? "Something went wrong.");
-    } else {
-      chatStore.addMessage("ai", data.reply ?? "No response received.");
-    }
+    await Promise.all([
+      chatStore.refreshConversations(),
+      chatStore.loadActiveConversation(),
+    ]);
   } catch (error) {
-    chatStore.addMessage("ai", "Error: " + error.message);
+    errorMessage = getErrorMessage(error);
+  } finally {
+    isLoading = false;
+    render();
+  }
+}
+
+async function runAction(action) {
+  errorMessage = "";
+
+  try {
+    await action();
+  } catch (error) {
+    errorMessage = getErrorMessage(error);
   }
 
-  isLoading = false;
   render();
 }
 
@@ -187,4 +345,19 @@ function scrollToBottom() {
   }
 }
 
-render();
+function getErrorMessage(error) {
+  return error instanceof Error
+    ? error.message
+    : "An unexpected error occurred.";
+}
+
+function escapeHtml(value) {
+  return String(value)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
+}
+
+startApp();

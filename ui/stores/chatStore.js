@@ -1,87 +1,103 @@
+import { conversationService } from "../services/conversationService.js";
+
 export const chatStore = {
-    conversations: [],
-    activeConversationId: null,
+  conversations: [],
+  activeConversationId: null,
+  messages: [],
+  initialized: false,
 
-    load() {
-        const saved =
-            localStorage.getItem("local-ai-conversations") ??
-            localStorage.getItem("local-a-conversations");
+  async initialize() {
+    this.conversations = await conversationService.getAll();
 
-        if (saved) {
-            try {
-                const parsed = JSON.parse(saved);
-                this.conversations = Array.isArray(parsed) ? parsed : [];
-            } catch {
-                this.conversations = [];
-            }
-        }
+    if (this.conversations.length === 0) {
+      const conversation = await conversationService.create();
+      this.conversations = [conversation];
+    }
 
-        if (this.conversations.length === 0) {
-            this.createConversation();
-        } else {
-            this.activeConversationId = this.conversations[0].id;
-        }
-    },
+    this.activeConversationId = this.conversations[0].id;
+    await this.loadActiveConversation();
 
-    save() {
-        localStorage.setItem(
-            "local-ai-conversations",
-            JSON.stringify(this.conversations),
-        );
-    },
+    this.initialized = true;
+  },
 
-    createConversation() {
-        const conversation = {
-            id: crypto.randomUUID(),
-            title: "New Chat",
-            messages: [],
-            createdAt: new Date().toISOString(),
-        };
+  getActiveConversation() {
+    return this.conversations.find(
+      (conversation) =>
+        conversation.id === this.activeConversationId,
+    ) ?? null;
+  },
 
-        this.conversations.unshift(conversation);
-        this.activeConversationId = conversation.id;
-        this.save();
-    },
+  async refreshConversations() {
+    this.conversations = await conversationService.getAll();
+  },
 
-    getActiveConversation() {
-        return this.conversations.find(
-            (chat) => chat.id === this.activeConversationId,
-        );
-    },
+  async loadActiveConversation() {
+    if (!this.activeConversationId) {
+      this.messages = [];
+      return;
+    }
 
-    addMessage(role, content) {
-        const chat = this.getActiveConversation();
-        if (!chat) return;
+    const data = await conversationService.getById(
+      this.activeConversationId,
+    );
 
-        chat.messages.push({ role, content });
+    this.messages = data.messages ?? [];
+  },
 
-        if (chat.title === "New Chat" && role === "user") {
-            chat.title = content.slice(0, 30);
-        }
+  async selectConversation(id) {
+    this.activeConversationId = id;
+    await this.loadActiveConversation();
+  },
 
-        this.save();
-    },
+  async createConversation() {
+    const conversation = await conversationService.create();
 
-    setActiveConversation(id) {
-        this.activeConversationId = id;
-    },
+    await this.refreshConversations();
 
-    clearMessages() {
-        const chat = this.getActiveConversation();
-        if (!chat) return;
+    this.activeConversationId = conversation.id;
+    this.messages = [];
 
-        chat.messages = [];
-        chat.title = "New Chat";
-        this.save();
-    },
+    return conversation;
+  },
 
-    getMessagesForOllama() {
-        const chat = this.getActiveConversation();
-        if (!chat) return [];
+  async renameConversation(id, title) {
+    await conversationService.rename(id, title);
+    await this.refreshConversations();
+  },
 
-        return chat.messages.map((msg) => ({
-            role: msg.role === "ai" ? "assistant" : "user",
-            content: msg.content,
-        }));
-    },
+  async deleteConversation(id) {
+    await conversationService.delete(id);
+    await this.refreshConversations();
+
+    if (this.conversations.length === 0) {
+      await this.createConversation();
+      return;
+    }
+
+    if (this.activeConversationId === id) {
+      this.activeConversationId = this.conversations[0].id;
+    }
+
+    await this.loadActiveConversation();
+  },
+
+  async clearActiveConversation() {
+    if (!this.activeConversationId) return;
+
+    await conversationService.clearMessages(
+      this.activeConversationId,
+    );
+
+    this.messages = [];
+  },
+
+  addTemporaryMessage(role, content) {
+    this.messages.push({
+      id: crypto.randomUUID(),
+      conversationId: this.activeConversationId,
+      role,
+      content,
+      createdAt: new Date().toISOString(),
+    });
+  },
 };
