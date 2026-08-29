@@ -1,25 +1,18 @@
 import { Database } from "@db/sqlite";
+import { runMigrations } from "./migrations/index.ts";
 
 await Deno.mkdir("./data", { recursive: true });
 
-export const db = new Database("./data/local-ai-playground.db");
+export const db = new Database(
+  "./data/local-ai-playground.db",
+);
 
+// Recommended SQLite settings.
 db.exec(`
-  CREATE TABLE IF NOT EXISTS conversations (
-    id TEXT PRIMARY KEY,
-    title TEXT NOT NULL,
-    created_at TEXT NOT NULL,
-    updated_at TEXT NOT NULL
-  );
-
-  CREATE TABLE IF NOT EXISTS messages (
-    id TEXT PRIMARY KEY,
-    conversation_id TEXT NOT NULL,
-    role TEXT NOT NULL,
-    content TEXT NOT NULL,
-    created_at TEXT NOT NULL,
-    FOREIGN KEY (conversation_id) REFERENCES conversations(id)
-  );
+  PRAGMA foreign_keys = ON;
+  PRAGMA journal_mode = WAL;
 `);
+
+runMigrations(db);
 
 console.log("SQLite database ready.");

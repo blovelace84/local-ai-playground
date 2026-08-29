@@ -82,11 +82,6 @@ export function touchConversation(id: string): void {
 
 export function deleteConversation(id: string): void {
   db.prepare(`
-    DELETE FROM messages
-    WHERE conversation_id = ?
-  `).run(id);
-
-  db.prepare(`
     DELETE FROM conversations
     WHERE id = ?
   `).run(id);
