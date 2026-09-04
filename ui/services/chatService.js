@@ -3,6 +3,8 @@ export const chatService = {
     conversationId,
     model,
     message,
+    onStart,
+    onChunk,
   }) {
     const response = await fetch("/api/chat", {
       method: "POST",
@@ -91,11 +93,20 @@ export const chatService = {
           event.conversationId ??
           resolvedConversationId;
 
+        onStart?.({
+          conversationId: resolvedConversationId,
+        });
+
         return;
       }
 
       if (event.type === "chunk") {
-        fullResponse += event.content ?? "";
+        const content = event.content ?? "";
+
+        fullResponse += content;
+
+        onChunk?.(content);
+
         return;
       }
 

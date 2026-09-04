@@ -10,9 +10,6 @@ let errorMessage = "";
 
 async function startApp() {
   try {
-    // Remove the old prototype data once.
-    localStorage.removeItem("local-ai-conversations");
-
     await Promise.all([
       chatStore.initialize(),
       modelStore.loadModels(),
@@ -33,7 +30,11 @@ function render() {
       <aside class="sidebar">
         <h2>Local AI</h2>
 
-        <button id="newChatBtn" class="sidebar-button">
+        <button
+          id="newChatBtn"
+          class="sidebar-button"
+          ${isLoading ? "disabled" : ""}
+        >
           + New Chat
         </button>
 
@@ -42,7 +43,11 @@ function render() {
 
           ${
             chatStore.conversations.length === 0
-              ? `<p class="empty-sidebar-text">No conversations yet.</p>`
+              ? `
+                <p class="empty-sidebar-text">
+                  No conversations yet.
+                </p>
+              `
               : chatStore.conversations
                   .map(
                     (conversation) => `
@@ -55,6 +60,7 @@ function render() {
                               : ""
                           }"
                           data-chat-id="${conversation.id}"
+                          ${isLoading ? "disabled" : ""}
                         >
                           ${escapeHtml(conversation.title)}
                         </button>
@@ -63,6 +69,7 @@ function render() {
                           class="chat-action-button rename-chat-button"
                           data-chat-id="${conversation.id}"
                           title="Rename chat"
+                          ${isLoading ? "disabled" : ""}
                         >
                           ✏️
                         </button>
@@ -71,6 +78,7 @@ function render() {
                           class="chat-action-button delete-chat-button"
                           data-chat-id="${conversation.id}"
                           title="Delete chat"
+                          ${isLoading ? "disabled" : ""}
                         >
                           🗑️
                         </button>
@@ -86,11 +94,19 @@ function render() {
 
           <select
             id="modelSelect"
-            ${modelStore.models.length === 0 ? "disabled" : ""}
+            ${
+              modelStore.models.length === 0 || isLoading
+                ? "disabled"
+                : ""
+            }
           >
             ${
               modelStore.models.length === 0
-                ? `<option value="">No models installed</option>`
+                ? `
+                  <option value="">
+                    No models installed
+                  </option>
+                `
                 : modelStore.models
                     .map(
                       (model) => `
@@ -109,6 +125,7 @@ function render() {
         <header class="topbar">
           <div>
             <h1>🤖 Local AI Playground</h1>
+
             <p>
               ${
                 activeChat
@@ -119,14 +136,23 @@ function render() {
           </div>
 
           <div class="active-model-pill">
-            ${escapeHtml(modelStore.selectedModel || "No model")}
+            ${escapeHtml(
+              modelStore.selectedModel || "No model",
+            )}
           </div>
         </header>
 
-        <section class="chat-box" id="chatBox">
+        <section
+          class="chat-box"
+          id="chatBox"
+        >
           ${
             errorMessage
-              ? `<div class="error-message">${escapeHtml(errorMessage)}</div>`
+              ? `
+                <div class="error-message">
+                  ${escapeHtml(errorMessage)}
+                </div>
+              `
               : ""
           }
 
@@ -134,10 +160,13 @@ function render() {
             chatStore.messages.length === 0
               ? `
                 <p class="empty-state">
-                  No messages yet. Start a conversation.
+                  No messages yet.
+                  Start a conversation.
                 </p>
               `
-              : chatStore.messages.map(ChatBubble).join("")
+              : chatStore.messages
+                  .map(ChatBubble)
+                  .join("")
           }
         </section>
 
@@ -177,10 +206,15 @@ function render() {
 
   bindEvents();
 
-  const modelSelect = document.getElementById("modelSelect");
+  const modelSelect =
+    document.getElementById("modelSelect");
 
-  if (modelSelect && modelStore.selectedModel) {
-    modelSelect.value = modelStore.selectedModel;
+  if (
+    modelSelect &&
+    modelStore.selectedModel
+  ) {
+    modelSelect.value =
+      modelStore.selectedModel;
   }
 
   scrollToBottom();
@@ -189,105 +223,169 @@ function render() {
 function bindEvents() {
   document
     .getElementById("sendBtn")
-    ?.addEventListener("click", sendMessage);
+    ?.addEventListener(
+      "click",
+      sendMessage,
+    );
 
   document
     .getElementById("messageInput")
-    ?.addEventListener("keydown", (event) => {
-      if (event.key === "Enter" && !event.shiftKey) {
-        event.preventDefault();
-        sendMessage();
-      }
-    });
+    ?.addEventListener(
+      "keydown",
+      (event) => {
+        if (
+          event.key === "Enter" &&
+          !event.shiftKey
+        ) {
+          event.preventDefault();
+
+          sendMessage();
+        }
+      },
+    );
 
   document
     .getElementById("newChatBtn")
-    ?.addEventListener("click", async () => {
-      await runAction(async () => {
-        await chatStore.createConversation();
-      });
-    });
+    ?.addEventListener(
+      "click",
+      async () => {
+        if (isLoading) return;
+
+        await runAction(async () => {
+          await chatStore.createConversation();
+        });
+      },
+    );
 
   document
     .getElementById("clearChatBtn")
-    ?.addEventListener("click", async () => {
-      if (!chatStore.activeConversationId) return;
+    ?.addEventListener(
+      "click",
+      async () => {
+        if (
+          !chatStore.activeConversationId ||
+          isLoading
+        ) {
+          return;
+        }
 
-      const shouldClear = confirm(
-        "Clear every message in this conversation?",
-      );
+        const shouldClear = confirm(
+          "Clear every message in this conversation?",
+        );
 
-      if (!shouldClear) return;
+        if (!shouldClear) {
+          return;
+        }
 
-      await runAction(async () => {
-        await chatStore.clearActiveConversation();
-      });
-    });
+        await runAction(async () => {
+          await chatStore.clearActiveConversation();
+        });
+      },
+    );
 
   document
     .querySelectorAll(".chat-list-item")
     .forEach((button) => {
-      button.addEventListener("click", async () => {
-        await runAction(async () => {
-          await chatStore.selectConversation(
-            button.dataset.chatId,
-          );
-        });
-      });
+      button.addEventListener(
+        "click",
+        async () => {
+          if (isLoading) return;
+
+          await runAction(async () => {
+            await chatStore.selectConversation(
+              button.dataset.chatId,
+            );
+          });
+        },
+      );
     });
 
   document
-    .querySelectorAll(".rename-chat-button")
+    .querySelectorAll(
+      ".rename-chat-button",
+    )
     .forEach((button) => {
-      button.addEventListener("click", async () => {
-        const id = button.dataset.chatId;
+      button.addEventListener(
+        "click",
+        async () => {
+          if (isLoading) return;
 
-        const conversation = chatStore.conversations.find(
-          (item) => item.id === id,
-        );
+          const id =
+            button.dataset.chatId;
 
-        const title = prompt(
-          "Enter a new title:",
-          conversation?.title ?? "",
-        )?.trim();
+          const conversation =
+            chatStore.conversations.find(
+              (item) => item.id === id,
+            );
 
-        if (!title) return;
+          const title = prompt(
+            "Enter a new title:",
+            conversation?.title ?? "",
+          )?.trim();
 
-        await runAction(async () => {
-          await chatStore.renameConversation(id, title);
-        });
-      });
+          if (!title) {
+            return;
+          }
+
+          await runAction(async () => {
+            await chatStore.renameConversation(
+              id,
+              title,
+            );
+          });
+        },
+      );
     });
 
   document
-    .querySelectorAll(".delete-chat-button")
+    .querySelectorAll(
+      ".delete-chat-button",
+    )
     .forEach((button) => {
-      button.addEventListener("click", async () => {
-        const shouldDelete = confirm(
-          "Delete this conversation permanently?",
-        );
+      button.addEventListener(
+        "click",
+        async () => {
+          if (isLoading) return;
 
-        if (!shouldDelete) return;
-
-        await runAction(async () => {
-          await chatStore.deleteConversation(
-            button.dataset.chatId,
+          const shouldDelete = confirm(
+            "Delete this conversation permanently?",
           );
-        });
-      });
+
+          if (!shouldDelete) {
+            return;
+          }
+
+          await runAction(async () => {
+            await chatStore.deleteConversation(
+              button.dataset.chatId,
+            );
+          });
+        },
+      );
     });
 
   document
     .getElementById("modelSelect")
-    ?.addEventListener("change", (event) => {
-      modelStore.setModel(event.target.value);
-      render();
-    });
+    ?.addEventListener(
+      "change",
+      (event) => {
+        modelStore.setModel(
+          event.target.value,
+        );
+
+        render();
+      },
+    );
 }
 
 async function sendMessage() {
-  const input = document.getElementById("messageInput");
-  const message = input?.value.trim();
+  const input =
+    document.getElementById(
+      "messageInput",
+    );
+
+  const message =
+    input?.value.trim();
 
   if (
     !message ||
@@ -301,26 +399,100 @@ async function sendMessage() {
   errorMessage = "";
   isLoading = true;
 
-  chatStore.addTemporaryMessage("user", message);
+  const conversationId =
+    chatStore.activeConversationId;
+
+  /*
+    Display the user's message immediately.
+  */
+  chatStore.addTemporaryMessage(
+    "user",
+    message,
+  );
+
+  /*
+    Create an empty temporary assistant
+    message that we will fill as chunks arrive.
+  */
+  const streamingMessage = {
+    id: crypto.randomUUID(),
+    conversationId,
+    role: "assistant",
+    content: "",
+    createdAt:
+      new Date().toISOString(),
+    streaming: true,
+  };
+
+  chatStore.messages.push(
+    streamingMessage,
+  );
+
   render();
 
   try {
-    const data = await chatService.sendMessage({
-      conversationId: chatStore.activeConversationId,
-      model: modelStore.selectedModel,
-      message,
-    });
+    const data =
+      await chatService.sendMessage({
+        conversationId,
+        model:
+          modelStore.selectedModel,
+        message,
 
-    chatStore.activeConversationId = data.conversationId;
+        onStart({
+          conversationId:
+            serverConversationId,
+        }) {
+          if (serverConversationId) {
+            chatStore.activeConversationId =
+              serverConversationId;
 
+            streamingMessage.conversationId =
+              serverConversationId;
+          }
+        },
+
+        onChunk(chunk) {
+          streamingMessage.content +=
+            chunk;
+
+          render();
+        },
+      });
+
+    chatStore.activeConversationId =
+      data.conversationId;
+
+    /*
+      Once streaming is finished,
+      reload from SQLite.
+
+      This replaces our temporary messages
+      with the authoritative saved versions.
+    */
     await Promise.all([
       chatStore.refreshConversations(),
       chatStore.loadActiveConversation(),
     ]);
   } catch (error) {
-    errorMessage = getErrorMessage(error);
+    errorMessage =
+      getErrorMessage(error);
+
+    /*
+      Remove the empty assistant bubble
+      if generation failed before any text
+      was received.
+    */
+    if (!streamingMessage.content) {
+      chatStore.messages =
+        chatStore.messages.filter(
+          (item) =>
+            item.id !==
+            streamingMessage.id,
+        );
+    }
   } finally {
     isLoading = false;
+
     render();
   }
 }
@@ -331,17 +503,22 @@ async function runAction(action) {
   try {
     await action();
   } catch (error) {
-    errorMessage = getErrorMessage(error);
+    errorMessage =
+      getErrorMessage(error);
   }
 
   render();
 }
 
 function scrollToBottom() {
-  const chatBox = document.getElementById("chatBox");
+  const chatBox =
+    document.getElementById(
+      "chatBox",
+    );
 
   if (chatBox) {
-    chatBox.scrollTop = chatBox.scrollHeight;
+    chatBox.scrollTop =
+      chatBox.scrollHeight;
   }
 }
 
