@@ -1,8 +1,10 @@
-import { runModel } from "../model/runner.ts";
+import { streamModel } from "../model/runner.ts";
+
 import {
   addMessage,
   getMessages,
 } from "../database/messageRepository.ts";
+
 import {
   createConversation,
   getConversationById,
@@ -15,7 +17,9 @@ type ChatRequestBody = {
   message?: string;
 };
 
-export async function handleChatApi(req: Request): Promise<Response> {
+export async function handleChatApi(
+  req: Request,
+): Promise<Response> {
   if (req.method !== "POST") {
     return Response.json(
       { error: "Method not allowed" },
@@ -35,10 +39,9 @@ export async function handleChatApi(req: Request): Promise<Response> {
 
   let conversationId = body.conversationId;
 
-  // Old localStorage IDs may not exist in SQLite.
-  // If the conversation cannot be found, create a new database conversation.
   if (conversationId) {
-    const existingConversation = getConversationById(conversationId);
+    const existingConversation =
+      getConversationById(conversationId);
 
     if (!existingConversation) {
       const conversation = createConversation();
@@ -49,27 +52,98 @@ export async function handleChatApi(req: Request): Promise<Response> {
     conversationId = conversation.id;
   }
 
-  addMessage(conversationId, "user", message);
+  addMessage(
+    conversationId,
+    "user",
+    message,
+  );
 
-  const messages = getMessages(conversationId).map((savedMessage) => ({
+  const messages = getMessages(
+    conversationId,
+  ).map((savedMessage) => ({
     role: savedMessage.role,
     content: savedMessage.content,
   }));
 
-  const reply = await runModel(messages, body.model);
-
-  addMessage(conversationId, "assistant", reply);
-
-  const conversation = getConversationById(conversationId);
+  const conversation =
+    getConversationById(conversationId);
 
   if (conversation?.title === "New Chat") {
-    renameConversation(conversationId, createTitle(message));
+    renameConversation(
+      conversationId,
+      createTitle(message),
+    );
   }
 
-  return Response.json({
-    conversationId,
-    reply,
+  const encoder = new TextEncoder();
+
+  const stream = new ReadableStream<Uint8Array>({
+    async start(controller) {
+      try {
+        sendEvent(controller, encoder, {
+          type: "start",
+          conversationId,
+        });
+
+        const fullResponse = await streamModel(
+          messages,
+          body.model,
+          (chunk) => {
+            sendEvent(controller, encoder, {
+              type: "chunk",
+              content: chunk,
+            });
+          },
+        );
+
+        addMessage(
+          conversationId,
+          "assistant",
+          fullResponse,
+        );
+
+        sendEvent(controller, encoder, {
+          type: "done",
+          conversationId,
+        });
+
+        controller.close();
+      } catch (error) {
+        const errorMessage =
+          error instanceof Error
+            ? error.message
+            : "An unexpected streaming error occurred.";
+
+        sendEvent(controller, encoder, {
+          type: "error",
+          error: errorMessage,
+        });
+
+        controller.close();
+      }
+    },
   });
+
+  return new Response(stream, {
+    status: 200,
+    headers: {
+      "content-type":
+        "application/x-ndjson; charset=utf-8",
+      "cache-control": "no-cache",
+    },
+  });
+}
+
+function sendEvent(
+  controller: ReadableStreamDefaultController<Uint8Array>,
+  encoder: TextEncoder,
+  event: Record<string, unknown>,
+): void {
+  controller.enqueue(
+    encoder.encode(
+      `${JSON.stringify(event)}\n`,
+    ),
+  );
 }
 
 function createTitle(message: string): string {
