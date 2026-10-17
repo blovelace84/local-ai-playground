@@ -2,11 +2,14 @@ import { chatStore } from "./stores/chatStore.js";
 import { modelStore } from "./stores/modelStore.js";
 import { chatService } from "./services/chatService.js";
 import { ChatBubble } from "./components/ChatBubble.js";
+import { renderMarkdown } from "./utils/markdown.js";
 
 const app = document.getElementById("app");
 
 let isLoading = false;
 let errorMessage = "";
+let activeAbortController = null;
+let streamingAnimationFrame = null;
 
 async function startApp() {
   try {
@@ -23,7 +26,8 @@ async function startApp() {
 }
 
 function render() {
-  const activeChat = chatStore.getActiveConversation();
+  const activeChat =
+    chatStore.getActiveConversation();
 
   app.innerHTML = `
     <main class="layout">
@@ -95,7 +99,8 @@ function render() {
           <select
             id="modelSelect"
             ${
-              modelStore.models.length === 0 || isLoading
+              modelStore.models.length === 0 ||
+                  isLoading
                 ? "disabled"
                 : ""
             }
@@ -137,7 +142,8 @@ function render() {
 
           <div class="active-model-pill">
             ${escapeHtml(
-              modelStore.selectedModel || "No model",
+              modelStore.selectedModel ||
+                "No model",
             )}
           </div>
         </header>
@@ -186,18 +192,30 @@ function render() {
               Clear Chat
             </button>
 
-            <button
-              id="sendBtn"
-              ${
-                isLoading ||
-                    !chatStore.activeConversationId ||
-                    !modelStore.selectedModel
-                  ? "disabled"
-                  : ""
-              }
-            >
-              ${isLoading ? "Thinking..." : "Send"}
-            </button>
+            ${
+              isLoading
+                ? `
+                  <button
+                    id="stopBtn"
+                    class="stop-button"
+                  >
+                    ■ Stop
+                  </button>
+                `
+                : `
+                  <button
+                    id="sendBtn"
+                    ${
+                      !chatStore.activeConversationId ||
+                          !modelStore.selectedModel
+                        ? "disabled"
+                        : ""
+                    }
+                  >
+                    Send
+                  </button>
+                `
+            }
           </div>
         </section>
       </section>
@@ -226,6 +244,13 @@ function bindEvents() {
     ?.addEventListener(
       "click",
       sendMessage,
+    );
+
+  document
+    .getElementById("stopBtn")
+    ?.addEventListener(
+      "click",
+      stopGeneration,
     );
 
   document
@@ -399,6 +424,15 @@ async function sendMessage() {
   errorMessage = "";
   isLoading = true;
 
+  /*
+    Create a controller for this specific
+    generation request.
+
+    Pressing Stop will abort this controller.
+  */
+  activeAbortController =
+    new AbortController();
+
   const conversationId =
     chatStore.activeConversationId;
 
@@ -412,7 +446,10 @@ async function sendMessage() {
 
   /*
     Create an empty temporary assistant
-    message that we will fill as chunks arrive.
+    message.
+
+    Streaming chunks will be appended to
+    this object while Ollama generates.
   */
   const streamingMessage = {
     id: crypto.randomUUID(),
@@ -428,15 +465,34 @@ async function sendMessage() {
     streamingMessage,
   );
 
+  /*
+    This full render is intentional.
+
+    It adds the user's message, the empty
+    assistant bubble, and switches Send
+    to the Stop button.
+
+    After this point, individual streaming
+    chunks will NOT call render().
+  */
   render();
 
   try {
     const data =
       await chatService.sendMessage({
         conversationId,
+
         model:
           modelStore.selectedModel,
+
         message,
+
+        /*
+          Pass the AbortController signal
+          into fetch through chatService.
+        */
+        signal:
+          activeAbortController.signal,
 
         onStart({
           conversationId:
@@ -452,10 +508,22 @@ async function sendMessage() {
         },
 
         onChunk(chunk) {
+          /*
+            Update our in-memory message.
+          */
           streamingMessage.content +=
             chunk;
 
-          render();
+          /*
+            IMPORTANT:
+            Do NOT call render() here.
+
+            Only update the streaming
+            assistant bubble.
+          */
+          scheduleStreamingUpdate(
+            streamingMessage,
+          );
         },
       });
 
@@ -463,38 +531,185 @@ async function sendMessage() {
       data.conversationId;
 
     /*
-      Once streaming is finished,
-      reload from SQLite.
+      Generation completed normally.
 
-      This replaces our temporary messages
-      with the authoritative saved versions.
+      Reload from SQLite so our temporary
+      messages are replaced by the
+      authoritative persisted messages.
     */
     await Promise.all([
       chatStore.refreshConversations(),
       chatStore.loadActiveConversation(),
     ]);
   } catch (error) {
-    errorMessage =
-      getErrorMessage(error);
+    if (isAbortError(error)) {
+      /*
+        Stop was intentionally pressed.
 
-    /*
-      Remove the empty assistant bubble
-      if generation failed before any text
-      was received.
-    */
-    if (!streamingMessage.content) {
-      chatStore.messages =
-        chatStore.messages.filter(
-          (item) =>
-            item.id !==
-            streamingMessage.id,
-        );
+        Do not display AbortError to the
+        user.
+
+        Reload whatever state the backend
+        successfully persisted.
+      */
+      try {
+        await Promise.all([
+          chatStore.refreshConversations(),
+          chatStore.loadActiveConversation(),
+        ]);
+      } catch (reloadError) {
+        errorMessage =
+          getErrorMessage(reloadError);
+      }
+    } else {
+      /*
+        This is an actual error rather
+        than an intentional cancellation.
+      */
+      errorMessage =
+        getErrorMessage(error);
+
+      /*
+        If generation failed before any
+        assistant text arrived, remove
+        the empty temporary AI bubble.
+      */
+      if (!streamingMessage.content) {
+        chatStore.messages =
+          chatStore.messages.filter(
+            (item) =>
+              item.id !==
+              streamingMessage.id,
+          );
+      }
     }
   } finally {
-    isLoading = false;
+    /*
+      Cancel any visual update that may
+      still be waiting for the browser's
+      next animation frame.
+    */
+    if (
+      streamingAnimationFrame !== null
+    ) {
+      cancelAnimationFrame(
+        streamingAnimationFrame,
+      );
 
+      streamingAnimationFrame = null;
+    }
+
+    isLoading = false;
+    activeAbortController = null;
+
+    /*
+      A full render is appropriate here
+      because generation has finished or
+      has been stopped.
+    */
     render();
   }
+}
+
+/*
+  Schedule one visual streaming update
+  for the browser's next animation frame.
+
+  If several Ollama chunks arrive before
+  that frame, they are combined into the
+  same visual update.
+*/
+function scheduleStreamingUpdate(
+  message,
+) {
+  if (
+    streamingAnimationFrame !== null
+  ) {
+    return;
+  }
+
+  streamingAnimationFrame =
+    requestAnimationFrame(() => {
+      streamingAnimationFrame = null;
+
+      updateStreamingMessage(
+        message,
+      );
+    });
+}
+
+/*
+  Update ONLY the current assistant
+  message instead of rebuilding the
+  entire application.
+*/
+function updateStreamingMessage(
+  message,
+) {
+  const messageContent =
+    document.querySelector(
+      `[data-message-content="${message.id}"]`,
+    );
+
+  if (!messageContent) {
+    return;
+  }
+
+  const chatBox =
+    document.getElementById(
+      "chatBox",
+    );
+
+  /*
+    Determine whether the user was already
+    following the bottom of the response.
+
+    If they manually scrolled upward,
+    don't force them back down.
+  */
+  const shouldFollow =
+    isNearBottom(chatBox);
+
+  messageContent.innerHTML = 
+    renderMarkdown(message.content);
+  
+
+  if (
+    shouldFollow &&
+    chatBox
+  ) {
+    chatBox.scrollTop =
+      chatBox.scrollHeight;
+  }
+}
+
+/*
+  Consider the user to be following the
+  response when they are within 100px of
+  the bottom.
+*/
+function isNearBottom(element) {
+  if (!element) {
+    return false;
+  }
+
+  const distanceFromBottom =
+    element.scrollHeight -
+    element.scrollTop -
+    element.clientHeight;
+
+  return distanceFromBottom < 100;
+}
+
+/*
+  Stop the currently active generation.
+*/
+function stopGeneration() {
+  if (!activeAbortController) {
+    return;
+  }
+
+  activeAbortController.abort();
 }
 
 async function runAction(action) {
@@ -510,6 +725,13 @@ async function runAction(action) {
   render();
 }
 
+/*
+  Used for full application renders,
+  such as loading/opening a conversation.
+
+  Streaming chunks themselves do not
+  invoke this function anymore.
+*/
 function scrollToBottom() {
   const chatBox =
     document.getElementById(
@@ -520,6 +742,18 @@ function scrollToBottom() {
     chatBox.scrollTop =
       chatBox.scrollHeight;
   }
+}
+
+/*
+  AbortError means the user intentionally
+  pressed Stop. It should not be shown as
+  an application error.
+*/
+function isAbortError(error) {
+  return (
+    error instanceof DOMException &&
+    error.name === "AbortError"
+  );
 }
 
 function getErrorMessage(error) {

@@ -5,6 +5,7 @@ export const chatService = {
     message,
     onStart,
     onChunk,
+    signal,
   }) {
     const response = await fetch("/api/chat", {
       method: "POST",
@@ -16,6 +17,7 @@ export const chatService = {
         model,
         message,
       }),
+      signal,
     });
 
     if (!response.ok) {
