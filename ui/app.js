@@ -771,4 +771,44 @@ function escapeHtml(value) {
     .replaceAll("'", "&#039;");
 }
 
+async function _handleCopyCode(event) {
+  const button = event.target.closest(
+    ".copy-code-button",
+  );
+
+  if (!button) return;
+
+  const codeBlock = button.closest(".code-block");
+  const codeElement = codeBlock?.querySelector("pre code");
+
+  if (!codeElement) return;
+
+  try {
+    await navigator.clipboard.writeText(
+      codeElement.textContent,
+    );
+
+    const label = button.querySelector(
+      ".copy-code-label",
+    );
+
+    if (label) {
+      label.textContent = "Copied!";
+    }
+
+    button.classList.add("copied");
+
+    setTimeout(() => {
+      if (label) {
+        label.textContent = "Copy";
+      }
+
+      button.classList.remove("copied");
+    }, 2000);
+  } catch (error) {
+    console.error("Failed to copy code:", error);
+  }
+}
+
+app.addEventListener("click", _handleCopyCode);
 startApp();

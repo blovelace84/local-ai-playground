@@ -515,6 +515,76 @@
 
     white-space: pre;
 }
+
+    .code-block {
+    margin: 14px 0;
+    overflow: hidden;
+    border: 1px solid #334155;
+    border-radius: 10px;
+    background: #020617;
+}
+
+.code-block-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 14px;
+    border-bottom: 1px solid #334155;
+    background: #1e293b;
+}
+
+.code-language {
+    color: #cbd5e1;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+}
+
+.message-content .code-block pre {
+    margin: 0;
+    border: none;
+    border-radius: 0;
+    background: transparent;
+}
+
+.message-content .code-block code {
+    display: block;
+    font-family: Consolas, "Courier New", monospace;
+    font-size: 13px;
+    line-height: 1.6;
+    white-space: pre;
+}
+
+.copy-code-button {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+
+    margin: 0;
+    padding: 5px 10px;
+
+    border: 1px solid #475569;
+    border-radius: 6px;
+
+    background: #334155;
+    color: #e2e8f0;
+
+    font-size: 12px;
+    cursor: pointer;
+}
+
+.copy-code-button:hover {
+    background: #475569;
+}
+
+.copy-code-button.copied {
+    border-color: #22c55e;
+    color: #86efac;
+}
+
+.copy-code-icon {
+    font-size: 14px;
+}
     </style>
 </head>
 
