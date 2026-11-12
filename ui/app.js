@@ -29,6 +29,10 @@ function render() {
   const activeChat =
     chatStore.getActiveConversation();
 
+  const lastMessage = chatStore.messages.at(-1);
+  const latestAssistantId = lastMessage?.role === "assistant" && !lastMessage.streaming
+    ? lastMessage.id : null;
+
   app.innerHTML = `
     <main class="layout">
       <aside class="sidebar">
@@ -171,7 +175,10 @@ function render() {
                 </p>
               `
               : chatStore.messages
-                  .map(ChatBubble)
+                  .map((message) => ChatBubble(message, {
+                     canRegenerate: message.id === latestAssistantId,
+                     isLoading,
+                   }))
                   .join("")
           }
         </section>
@@ -807,6 +814,78 @@ async function _handleCopyCode(event) {
     }, 2000);
   } catch (error) {
     console.error("Failed to copy code:", error);
+  }
+}
+
+// Event delegation survives the full renders and streaming DOM updates.
+app.addEventListener("click", (event) => {
+  const button = event.target.closest(".regenerate-button");
+  if (!button || isLoading) return;
+  regenerateResponse(button.dataset.regenerateId);
+});
+
+async function regenerateResponse(assistantMessageId) {
+  if (isLoading || !modelStore.selectedModel) return;
+
+  const conversationId = chatStore.activeConversationId;
+  const savedMessages = chatStore.messages;
+  const last = savedMessages.at(-1);
+  const previous = savedMessages.at(-2);
+
+  if (
+    !conversationId || !last || last.id !== assistantMessageId ||
+    last.role !== "assistant" || !previous || previous.role !== "user"
+  ) return;
+
+  errorMessage = "";
+  isLoading = true;
+  activeAbortController = new AbortController();
+
+  // Keep the original answer in memory until the server confirms success.
+  const oldContent = last.content;
+  const streamingMessage = {
+    ...last,
+    content: "",
+    streaming: true,
+  };
+  chatStore.messages = [...savedMessages.slice(0, -1), streamingMessage];
+  render();
+
+  try {
+    await chatService.sendMessage({
+      conversationId,
+      model: modelStore.selectedModel,
+      regenerate: true,
+      assistantMessageId,
+      signal: activeAbortController.signal,
+      onChunk(chunk) {
+        streamingMessage.content += chunk;
+        scheduleStreamingUpdate(streamingMessage);
+      },
+    });
+
+    await Promise.all([
+      chatStore.refreshConversations(),
+      chatStore.loadActiveConversation(),
+    ]);
+  } catch (error) {
+    if (!isAbortError(error)) {
+      errorMessage = getErrorMessage(error);
+    }
+    // Restore the previous answer on failures or local cancellation.
+    // The server must also honor cancellation to prevent late DB writes.
+    chatStore.messages = [...savedMessages.slice(0, -1), {
+      ...last,
+      content: oldContent,
+    }];
+  } finally {
+    if (streamingAnimationFrame !== null) {
+      cancelAnimationFrame(streamingAnimationFrame);
+      streamingAnimationFrame = null;
+    }
+    isLoading = false;
+    activeAbortController = null;
+    render();
   }
 }
 

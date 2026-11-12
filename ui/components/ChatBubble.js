@@ -2,7 +2,7 @@ import {
   renderMarkdown
 } from "../utils/markdown.js";
 
-export function ChatBubble(message) {
+export function ChatBubble(message, options = {}) {
   const isUser = message.role === "user";
   const label = isUser ? "You" : "AI";
   const avatar = isUser ? "🧑" : "🤖";
@@ -28,6 +28,15 @@ export function ChatBubble(message) {
         >
           ${content}
         </div>
+        ${
+          !isUser && options.canRegenerate && !message.streaming
+            ? `<button type="button" class="regenerate-button"
+                 data-regenerate-id="${escapeHtml(message.id)}"
+                 ${options.isLoading ? "disabled" : ""}>
+                 ↻ Regenerate
+               </button>`
+            : ""
+        }
       </div>
     </div>
   `;
