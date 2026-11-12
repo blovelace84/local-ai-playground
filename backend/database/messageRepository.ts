@@ -1,3 +1,4 @@
+
 import { db } from "./db.ts";
 import { touchConversation } from "./conversationRepository.ts";
 
@@ -9,7 +10,9 @@ export type Message = {
   createdAt: string;
 };
 
-function mapMessage(row: Record<string, unknown>): Message {
+function mapMessage(
+  row: Record<string, unknown>,
+): Message {
   return {
     id: String(row.id),
     conversationId: String(row.conversation_id),
@@ -24,7 +27,6 @@ export function addMessage(
   role: "user" | "assistant",
   content: string,
 ): Message {
-
   const message: Message = {
     id: crypto.randomUUID(),
     conversationId,
@@ -35,17 +37,8 @@ export function addMessage(
 
   db.prepare(`
     INSERT INTO messages
-    (
-      id,
-      conversation_id,
-      role,
-      content,
-      created_at
-    )
-    VALUES
-    (
-      ?, ?, ?, ?, ?
-    )
+      (id, conversation_id, role, content, created_at)
+    VALUES (?, ?, ?, ?, ?)
   `).run(
     message.id,
     message.conversationId,
@@ -62,7 +55,6 @@ export function addMessage(
 export function getMessages(
   conversationId: string,
 ): Message[] {
-
   const rows = db.prepare(`
     SELECT
       id,
@@ -72,19 +64,57 @@ export function getMessages(
       created_at
     FROM messages
     WHERE conversation_id = ?
-    ORDER BY created_at ASC
+    ORDER BY created_at ASC, rowid ASC
   `).all(conversationId);
 
   return rows.map(mapMessage);
 }
 
+export function replaceAssistantMessage(
+  conversationId: string,
+  messageId: string,
+  content: string,
+): void {
+  const latest = db.prepare(`
+    SELECT id, role
+    FROM messages
+    WHERE conversation_id = ?
+    ORDER BY created_at DESC, rowid DESC
+    LIMIT 1
+  `).get(conversationId) as
+    | { id: string; role: string }
+    | undefined;
+
+  if (
+    !latest ||
+    latest.id !== messageId ||
+    latest.role !== "assistant"
+  ) {
+    throw new Error(
+      "The response is no longer the latest assistant message.",
+    );
+  }
+
+  db.prepare(`
+    UPDATE messages
+    SET content = ?
+    WHERE id = ?
+      AND conversation_id = ?
+      AND role = 'assistant'
+  `).run(
+    content,
+    messageId,
+    conversationId,
+  );
+
+  touchConversation(conversationId);
+}
+
 export function deleteMessages(
   conversationId: string,
-) {
-
+): void {
   db.prepare(`
     DELETE FROM messages
     WHERE conversation_id = ?
   `).run(conversationId);
-
 }

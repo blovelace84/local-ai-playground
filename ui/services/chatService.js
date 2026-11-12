@@ -1,8 +1,11 @@
+
 export const chatService = {
   async sendMessage({
     conversationId,
     model,
     message,
+    regenerate = false,
+    assistantMessageId,
     onStart,
     onChunk,
     signal,
@@ -16,6 +19,8 @@ export const chatService = {
         conversationId,
         model,
         message,
+        regenerate,
+        assistantMessageId,
       }),
       signal,
     });
@@ -27,7 +32,7 @@ export const chatService = {
         const data = await response.json();
         errorMessage = data.error ?? errorMessage;
       } catch {
-        // Keep the default error message.
+        // Keep the default error.
       }
 
       throw new Error(errorMessage);
@@ -46,20 +51,57 @@ export const chatService = {
     let fullResponse = "";
     let resolvedConversationId = conversationId;
 
+    function processLine(line) {
+      const trimmedLine = line.trim();
+
+      if (!trimmedLine) return;
+
+      const event = JSON.parse(trimmedLine);
+
+      if (event.type === "start") {
+        resolvedConversationId =
+          event.conversationId ??
+          resolvedConversationId;
+
+        onStart?.({
+          conversationId: resolvedConversationId,
+        });
+
+        return;
+      }
+
+      if (event.type === "chunk") {
+        const content = event.content ?? "";
+        fullResponse += content;
+        onChunk?.(content);
+        return;
+      }
+
+      if (event.type === "done") {
+        resolvedConversationId =
+          event.conversationId ??
+          resolvedConversationId;
+        return;
+      }
+
+      if (event.type === "error") {
+        throw new Error(
+          event.error ?? "AI generation failed.",
+        );
+      }
+    }
+
     try {
       while (true) {
         const { value, done } = await reader.read();
 
-        if (done) {
-          break;
-        }
+        if (done) break;
 
         buffer += decoder.decode(value, {
           stream: true,
         });
 
         const lines = buffer.split("\n");
-
         buffer = lines.pop() ?? "";
 
         for (const line of lines) {
@@ -80,52 +122,5 @@ export const chatService = {
       conversationId: resolvedConversationId,
       reply: fullResponse,
     };
-
-    function processLine(line) {
-      const trimmedLine = line.trim();
-
-      if (!trimmedLine) {
-        return;
-      }
-
-      const event = JSON.parse(trimmedLine);
-
-      if (event.type === "start") {
-        resolvedConversationId =
-          event.conversationId ??
-          resolvedConversationId;
-
-        onStart?.({
-          conversationId: resolvedConversationId,
-        });
-
-        return;
-      }
-
-      if (event.type === "chunk") {
-        const content = event.content ?? "";
-
-        fullResponse += content;
-
-        onChunk?.(content);
-
-        return;
-      }
-
-      if (event.type === "done") {
-        resolvedConversationId =
-          event.conversationId ??
-          resolvedConversationId;
-
-        return;
-      }
-
-      if (event.type === "error") {
-        throw new Error(
-          event.error ??
-          "AI generation failed.",
-        );
-      }
-    }
   },
 };

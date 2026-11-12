@@ -1,8 +1,10 @@
+
 import { streamModel } from "../model/runner.ts";
 
 import {
   addMessage,
   getMessages,
+  replaceAssistantMessage,
 } from "../database/messageRepository.ts";
 
 import {
@@ -15,6 +17,8 @@ type ChatRequestBody = {
   conversationId?: string;
   model?: string;
   message?: string;
+  regenerate?: boolean;
+  assistantMessageId?: string;
 };
 
 export async function handleChatApi(
@@ -27,99 +31,175 @@ export async function handleChatApi(
     );
   }
 
-  const body = await req.json() as ChatRequestBody;
-  const message = body.message?.trim();
+  let body: ChatRequestBody;
 
-  if (!message) {
+  try {
+    body = await req.json() as ChatRequestBody;
+  } catch {
     return Response.json(
-      { error: "A non-empty message is required." },
+      { error: "Invalid JSON request." },
       { status: 400 },
     );
   }
 
-  let conversationId = body.conversationId;
+  const isRegeneration = body.regenerate === true;
+  const message = body.message?.trim();
 
-  if (conversationId) {
-    const existingConversation =
+  let conversationId = body.conversationId;
+  let assistantMessageId: string | undefined;
+
+  if (isRegeneration) {
+    if (!conversationId || !body.assistantMessageId) {
+      return Response.json(
+        { error: "Conversation and assistant message IDs are required." },
+        { status: 400 },
+      );
+    }
+
+    if (!getConversationById(conversationId)) {
+      return Response.json(
+        { error: "Conversation not found." },
+        { status: 404 },
+      );
+    }
+
+    assistantMessageId = body.assistantMessageId;
+  } else {
+    if (!message) {
+      return Response.json(
+        { error: "A non-empty message is required." },
+        { status: 400 },
+      );
+    }
+
+    if (
+      !conversationId ||
+      !getConversationById(conversationId)
+    ) {
+      conversationId = createConversation().id;
+    }
+
+    addMessage(
+      conversationId,
+      "user",
+      message,
+    );
+
+    const conversation =
       getConversationById(conversationId);
 
-    if (!existingConversation) {
-      const conversation = createConversation();
-      conversationId = conversation.id;
+    if (conversation?.title === "New Chat") {
+      renameConversation(
+        conversationId,
+        createTitle(message),
+      );
     }
-  } else {
-    const conversation = createConversation();
-    conversationId = conversation.id;
   }
 
-  addMessage(
-    conversationId,
-    "user",
-    message,
+  const savedMessages = getMessages(conversationId);
+
+  let modelMessages = savedMessages.map(
+    (savedMessage) => ({
+      role: savedMessage.role,
+      content: savedMessage.content,
+    }),
   );
 
-  const messages = getMessages(
-    conversationId,
-  ).map((savedMessage) => ({
-    role: savedMessage.role,
-    content: savedMessage.content,
-  }));
+  if (isRegeneration) {
+    const last = savedMessages.at(-1);
+    const previous = savedMessages.at(-2);
 
-  const conversation =
-    getConversationById(conversationId);
+    if (
+      !last ||
+      last.id !== assistantMessageId ||
+      last.role !== "assistant" ||
+      !previous ||
+      previous.role !== "user"
+    ) {
+      return Response.json(
+        {
+          error:
+            "Only the latest assistant response can be regenerated.",
+        },
+        { status: 409 },
+      );
+    }
 
-  if (conversation?.title === "New Chat") {
-    renameConversation(
-      conversationId,
-      createTitle(message),
-    );
+    // Exclude the old assistant answer.
+    modelMessages = savedMessages
+      .slice(0, -1)
+      .map((savedMessage) => ({
+        role: savedMessage.role,
+        content: savedMessage.content,
+      }));
   }
 
+  const resolvedConversationId = conversationId;
+  const resolvedAssistantMessageId = assistantMessageId;
   const encoder = new TextEncoder();
 
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
+      let streamClosed = false;
+
+      function emit(event: Record<string, unknown>) {
+        if (!streamClosed) {
+          controller.enqueue(
+            encoder.encode(
+              `${JSON.stringify(event)}\n`,
+            ),
+          );
+        }
+      }
+
       try {
-        sendEvent(controller, encoder, {
+        emit({
           type: "start",
-          conversationId,
+          conversationId: resolvedConversationId,
         });
 
         const fullResponse = await streamModel(
-          messages,
+          modelMessages,
           body.model,
           (chunk) => {
-            sendEvent(controller, encoder, {
+            emit({
               type: "chunk",
               content: chunk,
             });
           },
         );
 
-        addMessage(
-          conversationId,
-          "assistant",
-          fullResponse,
-        );
+        if (isRegeneration) {
+          replaceAssistantMessage(
+            resolvedConversationId,
+            resolvedAssistantMessageId!,
+            fullResponse,
+          );
+        } else {
+          addMessage(
+            resolvedConversationId,
+            "assistant",
+            fullResponse,
+          );
+        }
 
-        sendEvent(controller, encoder, {
+        emit({
           type: "done",
-          conversationId,
+          conversationId: resolvedConversationId,
         });
-
-        controller.close();
       } catch (error) {
-        const errorMessage =
-          error instanceof Error
-            ? error.message
-            : "An unexpected streaming error occurred.";
-
-        sendEvent(controller, encoder, {
+        emit({
           type: "error",
-          error: errorMessage,
+          error:
+            error instanceof Error
+              ? error.message
+              : "AI generation failed.",
         });
-
-        controller.close();
+      } finally {
+        if (!streamClosed) {
+          streamClosed = true;
+          controller.close();
+        }
       }
     },
   });
@@ -132,18 +212,6 @@ export async function handleChatApi(
       "cache-control": "no-cache",
     },
   });
-}
-
-function sendEvent(
-  controller: ReadableStreamDefaultController<Uint8Array>,
-  encoder: TextEncoder,
-  event: Record<string, unknown>,
-): void {
-  controller.enqueue(
-    encoder.encode(
-      `${JSON.stringify(event)}\n`,
-    ),
-  );
 }
 
 function createTitle(message: string): string {
