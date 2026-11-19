@@ -270,8 +270,10 @@
 
         .message {
             display: flex;
-            flex: 0 1 min(78%, 760px);
+            flex: 0 1 auto;
             flex-direction: column;
+            width: fit-content;
+            max-width: min(78%, 760px);
             min-width: 0;
         }
 
@@ -299,7 +301,8 @@
 
         .message-content {
             box-sizing: border-box;
-            width: 100%;
+            width: fit-content;
+            max-width: 100%;
             padding: 8px 12px;
             border: 1px solid #334155;
             border-radius: 18px;
@@ -435,8 +438,7 @@
 
         @media (max-width: 640px) {
             .message {
-                flex-basis: 88%;
-                max-width:88%;
+                max-width: 88%;
             }
 
             .message-row {
