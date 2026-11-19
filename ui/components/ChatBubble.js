@@ -22,12 +22,12 @@ export function ChatBubble(message, options = {}) {
       <div class="message ${isUser ? "user" : "ai"}">
         <div class="message-label">${label}</div>
 
-        <div
-          class="message-content"
-          data-message-content="${escapeHtml(message.id)}"
-        >
-          ${content}
-        </div>
+        
+<div
+  class="message-content"
+  data-message-content="${escapeHtml(message.id)}"
+>${content}</div>
+
         ${
           !isUser && options.canRegenerate && !message.streaming
             ? `<button type="button" class="regenerate-button"
