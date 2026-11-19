@@ -6,6 +6,8 @@ export const chatService = {
     message,
     regenerate = false,
     assistantMessageId,
+    editAndResend = false,
+    userMessageId,
     onStart,
     onChunk,
     signal,
@@ -21,6 +23,8 @@ export const chatService = {
         message,
         regenerate,
         assistantMessageId,
+        editAndResend,
+        userMessageId,
       }),
       signal,
     });

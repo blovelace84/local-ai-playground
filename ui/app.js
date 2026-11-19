@@ -17,21 +17,28 @@ async function startApp() {
       chatStore.initialize(),
       modelStore.loadModels(),
     ]);
-
-    render();
   } catch (error) {
     errorMessage = getErrorMessage(error);
-    render();
   }
+
+  render();
 }
 
 function render() {
-  const activeChat =
-    chatStore.getActiveConversation();
-
+  const activeChat = chatStore.getActiveConversation();
   const lastMessage = chatStore.messages.at(-1);
-  const latestAssistantId = lastMessage?.role === "assistant" && !lastMessage.streaming
-    ? lastMessage.id : null;
+  const previousMessage = chatStore.messages.at(-2);
+
+  const latestAssistantId = lastMessage?.role === "assistant" &&
+      !lastMessage.streaming
+    ? lastMessage.id
+    : null;
+
+  const latestEditableUserId = lastMessage?.role === "assistant" &&
+      !lastMessage.streaming &&
+      previousMessage?.role === "user"
+    ? previousMessage.id
+    : null;
 
   app.innerHTML = `
     <main class="layout">
@@ -50,51 +57,49 @@ function render() {
           <p>Chats</p>
 
           ${
-            chatStore.conversations.length === 0
-              ? `
+    chatStore.conversations.length === 0
+      ? `
                 <p class="empty-sidebar-text">
                   No conversations yet.
                 </p>
               `
-              : chatStore.conversations
-                  .map(
-                    (conversation) => `
-                      <div class="chat-list-row">
-                        <button
-                          class="chat-list-item ${
-                            conversation.id ===
-                                chatStore.activeConversationId
-                              ? "active-chat"
-                              : ""
-                          }"
-                          data-chat-id="${conversation.id}"
-                          ${isLoading ? "disabled" : ""}
-                        >
-                          ${escapeHtml(conversation.title)}
-                        </button>
+      : chatStore.conversations.map(
+        (conversation) => `
+                  <div class="chat-list-row">
+                    <button
+                      class="chat-list-item ${
+          conversation.id ===
+              chatStore.activeConversationId
+            ? "active-chat"
+            : ""
+        }"
+                      data-chat-id="${escapeHtml(conversation.id)}"
+                      ${isLoading ? "disabled" : ""}
+                    >
+                      ${escapeHtml(conversation.title)}
+                    </button>
 
-                        <button
-                          class="chat-action-button rename-chat-button"
-                          data-chat-id="${conversation.id}"
-                          title="Rename chat"
-                          ${isLoading ? "disabled" : ""}
-                        >
-                          ✏️
-                        </button>
+                    <button
+                      class="chat-action-button rename-chat-button"
+                      data-chat-id="${escapeHtml(conversation.id)}"
+                      title="Rename chat"
+                      ${isLoading ? "disabled" : ""}
+                    >
+                      ✏️
+                    </button>
 
-                        <button
-                          class="chat-action-button delete-chat-button"
-                          data-chat-id="${conversation.id}"
-                          title="Delete chat"
-                          ${isLoading ? "disabled" : ""}
-                        >
-                          🗑️
-                        </button>
-                      </div>
-                    `,
-                  )
-                  .join("")
-          }
+                    <button
+                      class="chat-action-button delete-chat-button"
+                      data-chat-id="${escapeHtml(conversation.id)}"
+                      title="Delete chat"
+                      ${isLoading ? "disabled" : ""}
+                    >
+                      🗑️
+                    </button>
+                  </div>
+                `,
+      ).join("")
+  }
         </div>
 
         <div class="sidebar-section model-section">
@@ -102,30 +107,19 @@ function render() {
 
           <select
             id="modelSelect"
-            ${
-              modelStore.models.length === 0 ||
-                  isLoading
-                ? "disabled"
-                : ""
-            }
+            ${modelStore.models.length === 0 || isLoading ? "disabled" : ""}
           >
             ${
-              modelStore.models.length === 0
-                ? `
-                  <option value="">
-                    No models installed
-                  </option>
-                `
-                : modelStore.models
-                    .map(
-                      (model) => `
-                        <option value="${escapeHtml(model.name)}">
-                          ${escapeHtml(model.name)}
-                        </option>
-                      `,
-                    )
-                    .join("")
-            }
+    modelStore.models.length === 0
+      ? `<option value="">No models installed</option>`
+      : modelStore.models.map(
+        (model) => `
+                    <option value="${escapeHtml(model.name)}">
+                      ${escapeHtml(model.name)}
+                    </option>
+                  `,
+      ).join("")
+  }
           </select>
         </div>
       </aside>
@@ -134,53 +128,45 @@ function render() {
         <header class="topbar">
           <div>
             <h1>🤖 Local AI Playground</h1>
-
             <p>
               ${
-                activeChat
-                  ? escapeHtml(activeChat.title)
-                  : "No active conversation"
-              }
+    activeChat ? escapeHtml(activeChat.title) : "No active conversation"
+  }
             </p>
           </div>
 
           <div class="active-model-pill">
-            ${escapeHtml(
-              modelStore.selectedModel ||
-                "No model",
-            )}
+            ${escapeHtml(modelStore.selectedModel || "No model")}
           </div>
         </header>
 
-        <section
-          class="chat-box"
-          id="chatBox"
-        >
+        <section class="chat-box" id="chatBox">
           ${
-            errorMessage
-              ? `
+    errorMessage
+      ? `
                 <div class="error-message">
                   ${escapeHtml(errorMessage)}
                 </div>
               `
-              : ""
-          }
+      : ""
+  }
 
           ${
-            chatStore.messages.length === 0
-              ? `
+    chatStore.messages.length === 0
+      ? `
                 <p class="empty-state">
                   No messages yet.
                   Start a conversation.
                 </p>
               `
-              : chatStore.messages
-                  .map((message) => ChatBubble(message, {
-                     canRegenerate: message.id === latestAssistantId,
-                     isLoading,
-                   }))
-                  .join("")
-          }
+      : chatStore.messages
+        .map((message) => ChatBubble(message, {
+            canRegenerate: message.id === latestAssistantId,
+            canEdit: message.id === latestEditableUserId,
+            isLoading,
+        }))
+        .join("")
+  }
         </section>
 
         <section class="input-area">
@@ -200,29 +186,26 @@ function render() {
             </button>
 
             ${
-              isLoading
-                ? `
-                  <button
-                    id="stopBtn"
-                    class="stop-button"
-                  >
+    isLoading
+      ? `
+                  <button id="stopBtn" class="stop-button">
                     ■ Stop
                   </button>
                 `
-                : `
+      : `
                   <button
                     id="sendBtn"
                     ${
-                      !chatStore.activeConversationId ||
-                          !modelStore.selectedModel
-                        ? "disabled"
-                        : ""
-                    }
+        !chatStore.activeConversationId ||
+          !modelStore.selectedModel
+          ? "disabled"
+          : ""
+      }
                   >
                     Send
                   </button>
                 `
-            }
+  }
           </div>
         </section>
       </section>
@@ -231,193 +214,121 @@ function render() {
 
   bindEvents();
 
-  const modelSelect =
-    document.getElementById("modelSelect");
+  const modelSelect = document.getElementById("modelSelect");
 
-  if (
-    modelSelect &&
-    modelStore.selectedModel
-  ) {
-    modelSelect.value =
-      modelStore.selectedModel;
+  if (modelSelect && modelStore.selectedModel) {
+    modelSelect.value = modelStore.selectedModel;
   }
 
   scrollToBottom();
 }
 
 function bindEvents() {
-  document
-    .getElementById("sendBtn")
-    ?.addEventListener(
-      "click",
-      sendMessage,
-    );
+  document.getElementById("sendBtn")
+    ?.addEventListener("click", sendMessage);
 
-  document
-    .getElementById("stopBtn")
-    ?.addEventListener(
-      "click",
-      stopGeneration,
-    );
+  document.getElementById("stopBtn")
+    ?.addEventListener("click", stopGeneration);
 
-  document
-    .getElementById("messageInput")
-    ?.addEventListener(
-      "keydown",
-      (event) => {
-        if (
-          event.key === "Enter" &&
-          !event.shiftKey
-        ) {
-          event.preventDefault();
+  document.getElementById("messageInput")
+    ?.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" && !event.shiftKey) {
+        event.preventDefault();
+        sendMessage();
+      }
+    });
 
-          sendMessage();
-        }
-      },
-    );
+  document.getElementById("newChatBtn")
+    ?.addEventListener("click", async () => {
+      if (isLoading) return;
 
-  document
-    .getElementById("newChatBtn")
-    ?.addEventListener(
-      "click",
-      async () => {
+      await runAction(async () => {
+        await chatStore.createConversation();
+      });
+    });
+
+  document.getElementById("clearChatBtn")
+    ?.addEventListener("click", async () => {
+      if (
+        isLoading ||
+        !chatStore.activeConversationId
+      ) {
+        return;
+      }
+
+      if (!confirm("Clear every message in this conversation?")) {
+        return;
+      }
+
+      await runAction(async () => {
+        await chatStore.clearActiveConversation();
+      });
+    });
+
+  document.querySelectorAll(".chat-list-item")
+    .forEach((button) => {
+      button.addEventListener("click", async () => {
         if (isLoading) return;
 
         await runAction(async () => {
-          await chatStore.createConversation();
+          await chatStore.selectConversation(
+            button.dataset.chatId,
+          );
         });
-      },
-    );
+      });
+    });
 
-  document
-    .getElementById("clearChatBtn")
-    ?.addEventListener(
-      "click",
-      async () => {
-        if (
-          !chatStore.activeConversationId ||
-          isLoading
-        ) {
-          return;
-        }
+  document.querySelectorAll(".rename-chat-button")
+    .forEach((button) => {
+      button.addEventListener("click", async () => {
+        if (isLoading) return;
 
-        const shouldClear = confirm(
-          "Clear every message in this conversation?",
+        const id = button.dataset.chatId;
+
+        const conversation = chatStore.conversations.find(
+          (item) => item.id === id,
         );
 
-        if (!shouldClear) {
+        const title = prompt(
+          "Enter a new title:",
+          conversation?.title ?? "",
+        )?.trim();
+
+        if (!title) return;
+
+        await runAction(async () => {
+          await chatStore.renameConversation(id, title);
+        });
+      });
+    });
+
+  document.querySelectorAll(".delete-chat-button")
+    .forEach((button) => {
+      button.addEventListener("click", async () => {
+        if (isLoading) return;
+
+        if (!confirm("Delete this conversation permanently?")) {
           return;
         }
 
         await runAction(async () => {
-          await chatStore.clearActiveConversation();
-        });
-      },
-    );
-
-  document
-    .querySelectorAll(".chat-list-item")
-    .forEach((button) => {
-      button.addEventListener(
-        "click",
-        async () => {
-          if (isLoading) return;
-
-          await runAction(async () => {
-            await chatStore.selectConversation(
-              button.dataset.chatId,
-            );
-          });
-        },
-      );
-    });
-
-  document
-    .querySelectorAll(
-      ".rename-chat-button",
-    )
-    .forEach((button) => {
-      button.addEventListener(
-        "click",
-        async () => {
-          if (isLoading) return;
-
-          const id =
-            button.dataset.chatId;
-
-          const conversation =
-            chatStore.conversations.find(
-              (item) => item.id === id,
-            );
-
-          const title = prompt(
-            "Enter a new title:",
-            conversation?.title ?? "",
-          )?.trim();
-
-          if (!title) {
-            return;
-          }
-
-          await runAction(async () => {
-            await chatStore.renameConversation(
-              id,
-              title,
-            );
-          });
-        },
-      );
-    });
-
-  document
-    .querySelectorAll(
-      ".delete-chat-button",
-    )
-    .forEach((button) => {
-      button.addEventListener(
-        "click",
-        async () => {
-          if (isLoading) return;
-
-          const shouldDelete = confirm(
-            "Delete this conversation permanently?",
+          await chatStore.deleteConversation(
+            button.dataset.chatId,
           );
-
-          if (!shouldDelete) {
-            return;
-          }
-
-          await runAction(async () => {
-            await chatStore.deleteConversation(
-              button.dataset.chatId,
-            );
-          });
-        },
-      );
+        });
+      });
     });
 
-  document
-    .getElementById("modelSelect")
-    ?.addEventListener(
-      "change",
-      (event) => {
-        modelStore.setModel(
-          event.target.value,
-        );
-
-        render();
-      },
-    );
+  document.getElementById("modelSelect")
+    ?.addEventListener("change", (event) => {
+      modelStore.setModel(event.target.value);
+      render();
+    });
 }
 
 async function sendMessage() {
-  const input =
-    document.getElementById(
-      "messageInput",
-    );
-
-  const message =
-    input?.value.trim();
+  const input = document.getElementById("messageInput");
+  const message = input?.value.trim();
 
   if (
     !message ||
@@ -431,292 +342,288 @@ async function sendMessage() {
   errorMessage = "";
   isLoading = true;
 
-  /*
-    Create a controller for this specific
-    generation request.
+  const controller = new AbortController();
+  activeAbortController = controller;
 
-    Pressing Stop will abort this controller.
-  */
-  activeAbortController =
-    new AbortController();
+  const conversationId = chatStore.activeConversationId;
 
-  const conversationId =
-    chatStore.activeConversationId;
+  chatStore.addTemporaryMessage("user", message);
 
-  /*
-    Display the user's message immediately.
-  */
-  chatStore.addTemporaryMessage(
-    "user",
-    message,
-  );
-
-  /*
-    Create an empty temporary assistant
-    message.
-
-    Streaming chunks will be appended to
-    this object while Ollama generates.
-  */
   const streamingMessage = {
     id: crypto.randomUUID(),
     conversationId,
     role: "assistant",
     content: "",
-    createdAt:
-      new Date().toISOString(),
+    createdAt: new Date().toISOString(),
     streaming: true,
   };
 
-  chatStore.messages.push(
-    streamingMessage,
-  );
-
-  /*
-    This full render is intentional.
-
-    It adds the user's message, the empty
-    assistant bubble, and switches Send
-    to the Stop button.
-
-    After this point, individual streaming
-    chunks will NOT call render().
-  */
+  chatStore.messages.push(streamingMessage);
   render();
 
   try {
-    const data =
-      await chatService.sendMessage({
-        conversationId,
+    const data = await chatService.sendMessage({
+      conversationId,
+      model: modelStore.selectedModel,
+      message,
+      signal: controller.signal,
 
-        model:
-          modelStore.selectedModel,
+      onStart({ conversationId: serverId }) {
+        if (serverId) {
+          chatStore.activeConversationId = serverId;
+          streamingMessage.conversationId = serverId;
+        }
+      },
 
-        message,
+      onChunk(chunk) {
+        streamingMessage.content += chunk;
+        scheduleStreamingUpdate(streamingMessage);
+      },
+    });
 
-        /*
-          Pass the AbortController signal
-          into fetch through chatService.
-        */
-        signal:
-          activeAbortController.signal,
+    chatStore.activeConversationId = data.conversationId;
 
-        onStart({
-          conversationId:
-            serverConversationId,
-        }) {
-          if (serverConversationId) {
-            chatStore.activeConversationId =
-              serverConversationId;
-
-            streamingMessage.conversationId =
-              serverConversationId;
-          }
-        },
-
-        onChunk(chunk) {
-          /*
-            Update our in-memory message.
-          */
-          streamingMessage.content +=
-            chunk;
-
-          /*
-            IMPORTANT:
-            Do NOT call render() here.
-
-            Only update the streaming
-            assistant bubble.
-          */
-          scheduleStreamingUpdate(
-            streamingMessage,
-          );
-        },
-      });
-
-    chatStore.activeConversationId =
-      data.conversationId;
-
-    /*
-      Generation completed normally.
-
-      Reload from SQLite so our temporary
-      messages are replaced by the
-      authoritative persisted messages.
-    */
-    await Promise.all([
-      chatStore.refreshConversations(),
-      chatStore.loadActiveConversation(),
-    ]);
+    await reloadConversation();
   } catch (error) {
     if (isAbortError(error)) {
-      /*
-        Stop was intentionally pressed.
-
-        Do not display AbortError to the
-        user.
-
-        Reload whatever state the backend
-        successfully persisted.
-      */
       try {
-        await Promise.all([
-          chatStore.refreshConversations(),
-          chatStore.loadActiveConversation(),
-        ]);
+        await reloadConversation();
       } catch (reloadError) {
-        errorMessage =
-          getErrorMessage(reloadError);
+        errorMessage = getErrorMessage(reloadError);
       }
     } else {
-      /*
-        This is an actual error rather
-        than an intentional cancellation.
-      */
-      errorMessage =
-        getErrorMessage(error);
+      errorMessage = getErrorMessage(error);
 
-      /*
-        If generation failed before any
-        assistant text arrived, remove
-        the empty temporary AI bubble.
-      */
-      if (!streamingMessage.content) {
-        chatStore.messages =
-          chatStore.messages.filter(
-            (item) =>
-              item.id !==
-              streamingMessage.id,
+      try {
+        await reloadConversation();
+      } catch {
+        if (!streamingMessage.content) {
+          chatStore.messages = chatStore.messages.filter(
+            (item) => item.id !== streamingMessage.id,
           );
+        }
       }
     }
   } finally {
-    /*
-      Cancel any visual update that may
-      still be waiting for the browser's
-      next animation frame.
-    */
-    if (
-      streamingAnimationFrame !== null
-    ) {
-      cancelAnimationFrame(
-        streamingAnimationFrame,
-      );
+    finishGeneration();
+  }
+}
 
-      streamingAnimationFrame = null;
+async function regenerateResponse(assistantMessageId) {
+  if (isLoading || !modelStore.selectedModel) return;
+
+  const conversationId = chatStore.activeConversationId;
+  const savedMessages = chatStore.messages;
+  const last = savedMessages.at(-1);
+  const previous = savedMessages.at(-2);
+
+  if (
+    !conversationId ||
+    !last ||
+    last.id !== assistantMessageId ||
+    last.role !== "assistant" ||
+    last.streaming ||
+    !previous ||
+    previous.role !== "user"
+  ) {
+    return;
+  }
+
+  errorMessage = "";
+  isLoading = true;
+
+  const controller = new AbortController();
+  activeAbortController = controller;
+
+  const streamingMessage = {
+    ...last,
+    content: "",
+    streaming: true,
+  };
+
+  chatStore.messages = [
+    ...savedMessages.slice(0, -1),
+    streamingMessage,
+  ];
+
+  render();
+
+  try {
+    await chatService.sendMessage({
+      conversationId,
+      model: modelStore.selectedModel,
+      regenerate: true,
+      assistantMessageId,
+      signal: controller.signal,
+
+      onChunk(chunk) {
+        streamingMessage.content += chunk;
+        scheduleStreamingUpdate(streamingMessage);
+      },
+    });
+
+    await reloadConversation();
+  } catch (error) {
+    if (!isAbortError(error)) {
+      errorMessage = getErrorMessage(error);
     }
 
-    isLoading = false;
-    activeAbortController = null;
-
-    /*
-      A full render is appropriate here
-      because generation has finished or
-      has been stopped.
-    */
-    render();
+    chatStore.messages = savedMessages;
+  } finally {
+    finishGeneration();
   }
 }
 
-/*
-  Schedule one visual streaming update
-  for the browser's next animation frame.
+async function editAndResendMessage(userMessageId) {
+  if (isLoading || !modelStore.selectedModel) return;
 
-  If several Ollama chunks arrive before
-  that frame, they are combined into the
-  same visual update.
-*/
-function scheduleStreamingUpdate(
-  message,
-) {
+  const conversationId = chatStore.activeConversationId;
+  const savedMessages = chatStore.messages;
+  const last = savedMessages.at(-1);
+  const previous = savedMessages.at(-2);
+
   if (
-    streamingAnimationFrame !== null
+    !conversationId ||
+    !last ||
+    last.role !== "assistant" ||
+    last.streaming ||
+    !previous ||
+    previous.role !== "user" ||
+    previous.id !== userMessageId
   ) {
     return;
   }
 
-  streamingAnimationFrame =
-    requestAnimationFrame(() => {
-      streamingAnimationFrame = null;
+  const editedText = prompt(
+    "Edit your question:",
+    previous.content,
+  );
 
-      updateStreamingMessage(
-        message,
-      );
+  if (editedText === null) return;
+
+  const newQuestion = editedText.trim();
+
+  if (!newQuestion) {
+    alert("Your question cannot be empty.");
+    return;
+  }
+
+  if (newQuestion === previous.content.trim()) {
+    return;
+  }
+
+  errorMessage = "";
+  isLoading = true;
+
+  const controller = new AbortController();
+  activeAbortController = controller;
+
+  // Preview only: SQLite still has the original messages.
+  const editedUserMessage = {
+    ...previous,
+    content: newQuestion,
+  };
+
+  const streamingMessage = {
+    ...last,
+    content: "",
+    streaming: true,
+  };
+
+  chatStore.messages = [
+    ...savedMessages.slice(0, -2),
+    editedUserMessage,
+    streamingMessage,
+  ];
+
+  render();
+
+  try {
+    await chatService.sendMessage({
+      conversationId,
+      model: modelStore.selectedModel,
+      message: newQuestion,
+      editAndResend: true,
+      userMessageId: previous.id,
+      assistantMessageId: last.id,
+      signal: controller.signal,
+
+      onChunk(chunk) {
+        streamingMessage.content += chunk;
+        scheduleStreamingUpdate(streamingMessage);
+      },
     });
-}
 
-/*
-  Update ONLY the current assistant
-  message instead of rebuilding the
-  entire application.
-*/
-function updateStreamingMessage(
-  message,
-) {
-  const messageContent =
-    document.querySelector(
-      `[data-message-content="${message.id}"]`,
-    );
+    // Replace the preview with the saved SQLite version.
+    await reloadConversation();
+  } catch (error) {
+    if (!isAbortError(error)) {
+      errorMessage = getErrorMessage(error);
+    }
 
-  if (!messageContent) {
-    return;
-  }
-
-  const chatBox =
-    document.getElementById(
-      "chatBox",
-    );
-
-  /*
-    Determine whether the user was already
-    following the bottom of the response.
-
-    If they manually scrolled upward,
-    don't force them back down.
-  */
-  const shouldFollow =
-    isNearBottom(chatBox);
-
-  messageContent.innerHTML = 
-    renderMarkdown(message.content);
-  
-
-  if (
-    shouldFollow &&
-    chatBox
-  ) {
-    chatBox.scrollTop =
-      chatBox.scrollHeight;
+    // Restore the original question and answer.
+    chatStore.messages = savedMessages;
+  } finally {
+    finishGeneration();
   }
 }
 
-/*
-  Consider the user to be following the
-  response when they are within 100px of
-  the bottom.
-*/
+async function reloadConversation() {
+  await Promise.all([
+    chatStore.refreshConversations(),
+    chatStore.loadActiveConversation(),
+  ]);
+}
+
+function finishGeneration() {
+  if (streamingAnimationFrame !== null) {
+    cancelAnimationFrame(streamingAnimationFrame);
+    streamingAnimationFrame = null;
+  }
+
+  isLoading = false;
+  activeAbortController = null;
+  render();
+}
+
+function scheduleStreamingUpdate(message) {
+  if (streamingAnimationFrame !== null) return;
+
+  streamingAnimationFrame = requestAnimationFrame(() => {
+    streamingAnimationFrame = null;
+    updateStreamingMessage(message);
+  });
+}
+
+function updateStreamingMessage(message) {
+  const messageContent = document.querySelector(
+    `[data-message-content="${message.id}"]`,
+  );
+
+  if (!messageContent) return;
+
+  const chatBox = document.getElementById("chatBox");
+  const shouldFollow = isNearBottom(chatBox);
+
+  messageContent.innerHTML = renderMarkdown(message.content);
+
+  if (shouldFollow && chatBox) {
+    chatBox.scrollTop = chatBox.scrollHeight;
+  }
+}
+
 function isNearBottom(element) {
-  if (!element) {
-    return false;
-  }
+  if (!element) return false;
 
-  const distanceFromBottom =
-    element.scrollHeight -
+  const distanceFromBottom = element.scrollHeight -
     element.scrollTop -
     element.clientHeight;
 
   return distanceFromBottom < 100;
 }
 
-/*
-  Stop the currently active generation.
-*/
 function stopGeneration() {
-  if (!activeAbortController) {
-    return;
-  }
-
-  activeAbortController.abort();
+  activeAbortController?.abort();
 }
 
 async function runAction(action) {
@@ -725,40 +632,23 @@ async function runAction(action) {
   try {
     await action();
   } catch (error) {
-    errorMessage =
-      getErrorMessage(error);
+    errorMessage = getErrorMessage(error);
   }
 
   render();
 }
 
-/*
-  Used for full application renders,
-  such as loading/opening a conversation.
-
-  Streaming chunks themselves do not
-  invoke this function anymore.
-*/
 function scrollToBottom() {
-  const chatBox =
-    document.getElementById(
-      "chatBox",
-    );
+  const chatBox = document.getElementById("chatBox");
 
   if (chatBox) {
-    chatBox.scrollTop =
-      chatBox.scrollHeight;
+    chatBox.scrollTop = chatBox.scrollHeight;
   }
 }
 
-/*
-  AbortError means the user intentionally
-  pressed Stop. It should not be shown as
-  an application error.
-*/
 function isAbortError(error) {
   return (
-    error instanceof DOMException &&
+    error instanceof Error &&
     error.name === "AbortError"
   );
 }
@@ -778,10 +668,25 @@ function escapeHtml(value) {
     .replaceAll("'", "&#039;");
 }
 
-async function _handleCopyCode(event) {
-  const button = event.target.closest(
-    ".copy-code-button",
-  );
+// Event delegation survives full renders.
+app.addEventListener("click", (event) => {
+  const button = event.target.closest(".regenerate-button");
+
+  if (!button || isLoading) return;
+
+  regenerateResponse(button.dataset.regenerateId);
+});
+
+app.addEventListener("click", (event) => {
+  const button = event.target.closest(".edit-message-button");
+
+  if (!button || isLoading) return;
+
+  editAndResendMessage(button.dataset.editId);
+});
+
+app.addEventListener("click", async (event) => {
+  const button = event.target.closest(".copy-code-button");
 
   if (!button) return;
 
@@ -795,9 +700,7 @@ async function _handleCopyCode(event) {
       codeElement.textContent,
     );
 
-    const label = button.querySelector(
-      ".copy-code-label",
-    );
+    const label = button.querySelector(".copy-code-label");
 
     if (label) {
       label.textContent = "Copied!";
@@ -806,88 +709,24 @@ async function _handleCopyCode(event) {
     button.classList.add("copied");
 
     setTimeout(() => {
-      if (label) {
+      if (label?.isConnected) {
         label.textContent = "Copy";
       }
 
-      button.classList.remove("copied");
+      if (button.isConnected) {
+        button.classList.remove("copied");
+      }
     }, 2000);
   } catch (error) {
     console.error("Failed to copy code:", error);
   }
-}
-
-// Event delegation survives the full renders and streaming DOM updates.
-app.addEventListener("click", (event) => {
-  const button = event.target.closest(".regenerate-button");
-  if (!button || isLoading) return;
-  regenerateResponse(button.dataset.regenerateId);
 });
 
-async function regenerateResponse(assistantMessageId) {
-  if (isLoading || !modelStore.selectedModel) return;
+app.addEventListener("click", (event) => {
+  const button = event.target.closest(".edit-message-button");
 
-  const conversationId = chatStore.activeConversationId;
-  const savedMessages = chatStore.messages;
-  const last = savedMessages.at(-1);
-  const previous = savedMessages.at(-2);
+  if (!button || isLoading) return;
 
-  if (
-    !conversationId || !last || last.id !== assistantMessageId ||
-    last.role !== "assistant" || !previous || previous.role !== "user"
-  ) return;
-
-  errorMessage = "";
-  isLoading = true;
-  activeAbortController = new AbortController();
-
-  // Keep the original answer in memory until the server confirms success.
-  const oldContent = last.content;
-  const streamingMessage = {
-    ...last,
-    content: "",
-    streaming: true,
-  };
-  chatStore.messages = [...savedMessages.slice(0, -1), streamingMessage];
-  render();
-
-  try {
-    await chatService.sendMessage({
-      conversationId,
-      model: modelStore.selectedModel,
-      regenerate: true,
-      assistantMessageId,
-      signal: activeAbortController.signal,
-      onChunk(chunk) {
-        streamingMessage.content += chunk;
-        scheduleStreamingUpdate(streamingMessage);
-      },
-    });
-
-    await Promise.all([
-      chatStore.refreshConversations(),
-      chatStore.loadActiveConversation(),
-    ]);
-  } catch (error) {
-    if (!isAbortError(error)) {
-      errorMessage = getErrorMessage(error);
-    }
-    // Restore the previous answer on failures or local cancellation.
-    // The server must also honor cancellation to prevent late DB writes.
-    chatStore.messages = [...savedMessages.slice(0, -1), {
-      ...last,
-      content: oldContent,
-    }];
-  } finally {
-    if (streamingAnimationFrame !== null) {
-      cancelAnimationFrame(streamingAnimationFrame);
-      streamingAnimationFrame = null;
-    }
-    isLoading = false;
-    activeAbortController = null;
-    render();
-  }
-}
-
-app.addEventListener("click", _handleCopyCode);
+  editAndResendMessage(button.dataset.editId);
+});
 startApp();

@@ -1,4 +1,3 @@
-
 import { db } from "./db.ts";
 import { touchConversation } from "./conversationRepository.ts";
 
@@ -10,9 +9,7 @@ export type Message = {
   createdAt: string;
 };
 
-function mapMessage(
-  row: Record<string, unknown>,
-): Message {
+function mapMessage(row: Record<string, unknown>): Message {
   return {
     id: String(row.id),
     conversationId: String(row.conversation_id),
@@ -48,7 +45,6 @@ export function addMessage(
   );
 
   touchConversation(conversationId);
-
   return message;
 }
 
@@ -56,12 +52,7 @@ export function getMessages(
   conversationId: string,
 ): Message[] {
   const rows = db.prepare(`
-    SELECT
-      id,
-      conversation_id,
-      role,
-      content,
-      created_at
+    SELECT id, conversation_id, role, content, created_at
     FROM messages
     WHERE conversation_id = ?
     ORDER BY created_at ASC, rowid ASC
@@ -75,15 +66,7 @@ export function replaceAssistantMessage(
   messageId: string,
   content: string,
 ): void {
-  const latest = db.prepare(`
-    SELECT id, role
-    FROM messages
-    WHERE conversation_id = ?
-    ORDER BY created_at DESC, rowid DESC
-    LIMIT 1
-  `).get(conversationId) as
-    | { id: string; role: string }
-    | undefined;
+  const latest = getMessages(conversationId).at(-1);
 
   if (
     !latest ||
@@ -101,13 +84,67 @@ export function replaceAssistantMessage(
     WHERE id = ?
       AND conversation_id = ?
       AND role = 'assistant'
-  `).run(
-    content,
-    messageId,
-    conversationId,
-  );
+  `).run(content, messageId, conversationId);
 
   touchConversation(conversationId);
+}
+
+export function replaceQuestionAndAnswer(
+  conversationId: string,
+  userMessageId: string,
+  assistantMessageId: string,
+  newQuestion: string,
+  newAnswer: string,
+): void {
+  const question = newQuestion.trim();
+
+  if (!question || !newAnswer.trim()) {
+    throw new Error("Question and answer cannot be empty.");
+  }
+
+  // A transaction prevents partially saved edits.
+  db.exec("BEGIN IMMEDIATE");
+
+  try {
+    const messages = getMessages(conversationId);
+    const latest = messages.at(-1);
+    const previous = messages.at(-2);
+
+    if (
+      !latest ||
+      !previous ||
+      latest.id !== assistantMessageId ||
+      latest.role !== "assistant" ||
+      previous.id !== userMessageId ||
+      previous.role !== "user"
+    ) {
+      throw new Error(
+        "Only the latest question and answer can be edited.",
+      );
+    }
+
+    db.prepare(`
+      UPDATE messages
+      SET content = ?
+      WHERE id = ?
+        AND conversation_id = ?
+        AND role = 'user'
+    `).run(question, userMessageId, conversationId);
+
+    db.prepare(`
+      UPDATE messages
+      SET content = ?
+      WHERE id = ?
+        AND conversation_id = ?
+        AND role = 'assistant'
+    `).run(newAnswer, assistantMessageId, conversationId);
+
+    touchConversation(conversationId);
+    db.exec("COMMIT");
+  } catch (error) {
+    db.exec("ROLLBACK");
+    throw error;
+  }
 }
 
 export function deleteMessages(
@@ -117,4 +154,5 @@ export function deleteMessages(
     DELETE FROM messages
     WHERE conversation_id = ?
   `).run(conversationId);
+  touchConversation(conversationId);
 }

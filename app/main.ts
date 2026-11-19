@@ -3,8 +3,6 @@ import "../backend/database/db.ts";
 /// <reference lib="deno.window" />
 /// <reference lib="deno.ns" />
 
-declare const Deno: any;
-
 const PORT = 8000;
 
 Deno.serve({ port: PORT }, async (req: Request) => {

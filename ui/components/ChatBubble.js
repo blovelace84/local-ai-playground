@@ -37,6 +37,22 @@ export function ChatBubble(message, options = {}) {
                </button>`
             : ""
         }
+
+${isUser && options.canEdit && !options.isLoading
+  ? `
+    <button
+      type="button"
+      class="edit-message-button"
+      data-edit-id="${escapeHtml(message.id)}"
+      title="Edit and resend this question"
+    >
+      ✏️ Edit & Resend
+    </button>
+    
+  `
+  : ""
+}
+
       </div>
     </div>
   `;
