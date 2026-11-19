@@ -474,6 +474,108 @@ async function regenerateResponse(assistantMessageId) {
   }
 }
 
+
+function openMessageEditor(messageId, originalContent) {
+  return new Promise((resolve) => {
+    const messageElement = Array.from(
+      document.querySelectorAll("[data-message-id]"),
+    ).find((element) =>
+      element.dataset.messageId === messageId
+    );
+
+    if (!messageElement) {
+      errorMessage = "Could not find the message to edit.";
+      render();
+      resolve(null);
+      return;
+    }
+
+    const originalHTML = messageElement.innerHTML;
+
+    const editor = document.createElement("div");
+    editor.className = "inline-message-editor";
+
+    const textarea = document.createElement("textarea");
+    textarea.className = "inline-edit-textarea";
+    textarea.value = originalContent;
+    textarea.rows = 4;
+
+    const actions = document.createElement("div");
+    actions.className = "inline-edit-actions";
+
+    const cancelButton = document.createElement("button");
+    cancelButton.type = "button";
+    cancelButton.textContent = "Cancel";
+
+    const saveButton = document.createElement("button");
+    saveButton.type = "button";
+    saveButton.textContent = "Save & Resend";
+
+    actions.append(cancelButton, saveButton);
+    editor.append(textarea, actions);
+
+    messageElement.replaceChildren(editor);
+
+    let finished = false;
+
+    function finish(value) {
+      if (finished) return;
+      finished = true;
+
+      // Restore the original message while the caller
+      // prepares the generation request.
+      if (messageElement.isConnected) {
+        messageElement.innerHTML = originalHTML;
+      }
+
+      resolve(value);
+    }
+
+    cancelButton.addEventListener("click", () => {
+      finish(null);
+    });
+
+    saveButton.addEventListener("click", () => {
+      const value = textarea.value.trim();
+
+      if (!value) {
+        textarea.setCustomValidity(
+          "Your question cannot be empty.",
+        );
+        textarea.reportValidity();
+        return;
+      }
+
+      finish(value);
+    });
+
+    textarea.addEventListener("input", () => {
+      textarea.setCustomValidity("");
+    });
+
+    textarea.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        finish(null);
+      }
+
+      if (
+        event.key === "Enter" &&
+        (event.ctrlKey || event.metaKey)
+      ) {
+        event.preventDefault();
+        saveButton.click();
+      }
+    });
+
+    textarea.focus();
+    textarea.setSelectionRange(
+      textarea.value.length,
+      textarea.value.length,
+    );
+  });
+}
+
 async function editAndResendMessage(userMessageId) {
   if (isLoading || !modelStore.selectedModel) return;
 
@@ -494,23 +596,25 @@ async function editAndResendMessage(userMessageId) {
     return;
   }
 
-  const editedText = prompt(
-    "Edit your question:",
-    previous.content,
-  );
+  
+const newQuestion = await openMessageEditor(
+  previous.id,
+  previous.content,
+);
 
-  if (editedText === null) return;
+if (newQuestion === null) {
+  return;
+}
 
-  const newQuestion = editedText.trim();
+if (!newQuestion.trim()) {
+  errorMessage = "Your question cannot be empty.";
+  render();
+  return;
+}
 
-  if (!newQuestion) {
-    alert("Your question cannot be empty.");
-    return;
-  }
-
-  if (newQuestion === previous.content.trim()) {
-    return;
-  }
+if (newQuestion === previous.content.trim()) {
+  return;
+}
 
   errorMessage = "";
   isLoading = true;

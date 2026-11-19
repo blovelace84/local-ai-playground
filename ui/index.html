@@ -608,6 +608,54 @@
     opacity: 0.5;
     cursor: not-allowed;
 }
+
+
+.inline-message-editor {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 8px 0;
+}
+
+.inline-edit-textarea {
+  width: 100%;
+  min-height: 110px;
+  padding: 12px;
+  border: 1px solid #64748b;
+  border-radius: 8px;
+  background: #0f172a;
+  color: #f8fafc;
+  font: inherit;
+  line-height: 1.5;
+  resize: vertical;
+  box-sizing: border-box;
+}
+
+.inline-edit-textarea:focus {
+  outline: 2px solid #60a5fa;
+  outline-offset: 1px;
+}
+
+.inline-edit-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.inline-edit-actions button {
+  padding: 8px 14px;
+  border-radius: 7px;
+  border: 1px solid #64748b;
+  cursor: pointer;
+}
+
+.inline-edit-actions button:last-child {
+  background: #16a34a;
+  color: white;
+  border-color: #16a34a;
+}
+
     </style>
 </head>
 
